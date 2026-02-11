@@ -1,0 +1,12 @@
+{
+  "identifier": "com.gravitypoet.ocr.jkllmocr",
+  "versions": [
+    {
+      "version": "0.1.0",
+      "desc": "最强本地OCR插件首个公开版本。",
+      "sha256": "77ae8877c5232bc86a14f59c2b0c159d355d346669662164041790d017f0d991",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.0/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0"
+    }
+  ]
+}
