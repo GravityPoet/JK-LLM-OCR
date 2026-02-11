@@ -1,12 +1,13 @@
 {
-  "identifier": "com.gravitypoet.ocr.jkllmocr",
+  "identifier": "com.moonlitpoet.ocr.ppocrv5server",
   "versions": [
     {
-      "version": "0.1.0",
-      "desc": "最强本地OCR插件首个公开版本。",
-      "sha256": "77ae8877c5232bc86a14f59c2b0c159d355d346669662164041790d017f0d991",
-      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.0/JK-LLM-OCR.bobplugin",
-      "minBobVersion": "1.6.0"
+      "version": "0.1.1",
+      "desc": "公开发布：新增 appcast，完善 Bob 插件列表收录元信息。",
+      "sha256": "0003f8832513ea35b135b8d593086a798349c16007fb7f350d746600d0dbb3b1",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/raw/main/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1770819883000
     }
   ]
 }
