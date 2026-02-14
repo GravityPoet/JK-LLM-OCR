@@ -3,7 +3,8 @@ server/.venv/
 server/models/
 server/*.tar
 server/*.tar.*
+__pycache__/
+*.pyc
 
 # OS junk
 .DS_Store
-
