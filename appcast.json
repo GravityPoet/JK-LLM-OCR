@@ -1,13 +1,13 @@
 {
-  "identifier": "com.moonlitpoet.ocr.ppocrv5server",
+  "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
-      "version": "0.1.2",
-      "desc": "修复插件自检图片，兼容 OpenCV 解码；并提供 VPS/SSH 隧道使用方式。",
-      "sha256": "a6a8548615cc69405a88ae32bb85a273bab8efb4f92eb30e709ac471db7e0149",
-      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.2/JK-LLM-OCR.bobplugin",
+      "version": "0.1.3",
+      "desc": "隐私：移除个人标识符；文档：新增 VPS/SSH 隧道新手教程；Server：补齐服务端脚本与 systemd 模板。",
+      "sha256": "5cca6487c456f9f12ad910805e128bc6ae77a3288731f6a8899f2c5b61ce1a5d",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.3/JK-LLM-OCR.bobplugin",
       "minBobVersion": "1.6.0",
-      "timestamp": 1771082602000
+      "timestamp": 1771086217897
     }
   ]
 }

@@ -1,0 +1,25 @@
+[Unit]
+Description=PP-OCRv5 HTTP Server (JK-LLM-OCR)
+After=network.target
+
+[Service]
+Type=simple
+
+# IMPORTANT:
+# - Keep the server bound to 127.0.0.1 and access it via SSH tunnel.
+# - Update paths below to match your actual install directory.
+WorkingDirectory=/opt/jk-llm-ocr/server
+
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+Environment=DEVICE=cpu
+Environment=PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+
+ExecStart=/opt/jk-llm-ocr/server/scripts/start_ppocrv5_server.sh
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+

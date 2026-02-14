@@ -4,15 +4,16 @@
 [![Platform](https://img.shields.io/badge/platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
 [![Privacy](https://img.shields.io/badge/privacy-local%20only-success?style=flat-square&logo=shield)](https://github.com/GravityPoet/JK-LLM-OCR)
 
-> 拒绝云端 OCR 的等待和隐私外发风险。  
-> 这是一个为 [Bob](https://bobtranslate.com/) 打造的本地 OCR 插件：默认走本机服务，不依赖云端 OCR API，不消耗云端 Token。
+> 拒绝云端 OCR 的等待、计费与隐私外发风险。  
+> 这是一个为 [Bob](https://bobtranslate.com/) 打造的 **隐私优先** OCR 插件：默认请求本机 `127.0.0.1` 服务，不依赖第三方云 OCR API，不消耗云端 Token。
 
 ## 核心特性
 
-- `低延迟`：OCR 请求默认发往 `127.0.0.1` 本机服务，减少公网请求带来的额外等待。
-- `隐私优先`：截图不需要上传到第三方云 OCR（按默认配置）。
+- `低延迟`：不走云端往返，默认本机服务秒回。
+- `隐私优先`：截图不上传到第三方云 OCR（默认配置）。
 - `长期免费`：不走按次计费的云 OCR API 路线。
-- `中英混排可用`：基于 PaddleOCR PP-OCRv5_server 模型，适配日常开发与文档场景。
+- `中英混排可用`：基于 PaddleOCR 的 `PP-OCRv5_server` 模型，适配开发与文档场景。
+- `可远程`：支持把推理跑在你的 VPS 上，Mac 端通过 SSH 隧道调用（仍保持 `127.0.0.1` 配置，不暴露公网端口）。
 
 ## 与云端 OCR 路线对比
 
@@ -27,34 +28,16 @@
 
 1. 打开 [Releases](https://github.com/GravityPoet/JK-LLM-OCR/releases) 下载最新 `JK-LLM-OCR.bobplugin`。
 2. 双击插件文件安装到 Bob。
-3. 手动启动本地 OCR 服务：
-
-```bash
-cd /Users/moonlitpoet/Tools/PaddleOCR/bob-plugin-ppocrv5-server
-./scripts/start_ppocrv5_server.sh
-```
-
-4. 在 Bob 中选择 `JK-LLM-OCR` 插件并使用默认服务地址：`http://127.0.0.1:8080/ocr`。
+3. 在 Bob 中选择 `JK-LLM-OCR` 插件并使用默认服务地址：`http://127.0.0.1:8080/ocr`。
+4. 启动本地/远程 OCR 服务（任选其一）：
+   - 本机启动：见 `docs/local-server.md`
+   - VPS 远程：见 `docs/vps-remote-ocr.md`
 
 ## VPS 远程运行（SSH 隧道）
 
-如果你希望把 OCR 的模型与推理放到自己的 VPS（节省本机内存/CPU），推荐用 **SSH 隧道**：
+如果你希望把 OCR 的模型与推理放到自己的 VPS（节省本机内存/CPU），推荐用 **SSH 隧道**：不暴露公网端口、只监听 VPS 本地 `127.0.0.1`。
 
-1. VPS 上启动服务（示例为 systemd）：  
-
-```bash
-sudo systemctl start ppocrv5-http.service
-```
-
-2. Mac 上建立端口转发（保持终端窗口不关闭）：  
-
-```bash
-ssh -N -L 8080:127.0.0.1:8080 gravity-vps
-```
-
-3. Bob 插件仍使用默认地址：`http://127.0.0.1:8080/ocr`（无需改成公网 IP）。
-
-注意：截图数据会通过加密隧道发送到你的 VPS 进行识别，隐私边界变为“本机 + 自有 VPS”。
+完整教程（含 systemd 开机自启、排错）：`docs/vps-remote-ocr.md`
 
 ## 更新机制
 
@@ -75,4 +58,4 @@ A: 不必须。你可以随用随启，用完关闭。
 ## 声明
 
 - 本仓库为公开发布版，已去除私有称呼。
-- 本项目定位是“隐私优先 + 低延迟”的本地 OCR 方案。
+- 本项目定位是“隐私优先 + 低延迟”的本地 OCR 方案；如果你把服务跑在 VPS，上屏截图会通过 SSH 隧道发送到你的 VPS 进行识别。

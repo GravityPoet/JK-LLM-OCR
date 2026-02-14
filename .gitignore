@@ -1,0 +1,9 @@
+# Local build/deps
+server/.venv/
+server/models/
+server/*.tar
+server/*.tar.*
+
+# OS junk
+.DS_Store
+
