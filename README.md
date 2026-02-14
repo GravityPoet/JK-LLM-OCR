@@ -36,6 +36,26 @@ cd /Users/moonlitpoet/Tools/PaddleOCR/bob-plugin-ppocrv5-server
 
 4. 在 Bob 中选择 `JK-LLM-OCR` 插件并使用默认服务地址：`http://127.0.0.1:8080/ocr`。
 
+## VPS 远程运行（SSH 隧道）
+
+如果你希望把 OCR 的模型与推理放到自己的 VPS（节省本机内存/CPU），推荐用 **SSH 隧道**：
+
+1. VPS 上启动服务（示例为 systemd）：  
+
+```bash
+sudo systemctl start ppocrv5-http.service
+```
+
+2. Mac 上建立端口转发（保持终端窗口不关闭）：  
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 gravity-vps
+```
+
+3. Bob 插件仍使用默认地址：`http://127.0.0.1:8080/ocr`（无需改成公网 IP）。
+
+注意：截图数据会通过加密隧道发送到你的 VPS 进行识别，隐私边界变为“本机 + 自有 VPS”。
+
 ## 更新机制
 
 - 仓库根目录提供 `appcast.json`：`https://github.com/GravityPoet/JK-LLM-OCR/raw/main/appcast.json`
