@@ -1,0 +1,83 @@
+{
+  "identifier": "io.github.gravitypoet.jk.llm.ocr",
+  "version": "0.1.8",
+  "category": "ocr",
+  "name": "JK-LLM-OCR—GravityPoet开发",
+  "summary": "最强本地OCR插件",
+  "icon": "",
+  "author": "JK-LLM-OCR Contributors",
+  "homepage": "https://github.com/GravityPoet/JK-LLM-OCR",
+  "appcast": "https://raw.githubusercontent.com/GravityPoet/JK-LLM-OCR/main/appcast.json",
+  "minBobVersion": "1.6.0",
+  "options": [
+    {
+      "identifier": "serverUrl",
+      "type": "text",
+      "title": "OCR 服务地址",
+      "defaultValue": "http://127.0.0.1:50000/ocr",
+      "desc": "本地 PP-OCRv5_server 的 HTTP 地址，必须以 http:// 或 https:// 开头。"
+    },
+    {
+      "identifier": "requestTimeoutSec",
+      "type": "text",
+      "title": "请求超时(秒)",
+      "defaultValue": "30",
+      "desc": "单次 OCR 请求超时时间，范围 5-180 秒。"
+    },
+    {
+      "identifier": "textRecScoreThresh",
+      "type": "text",
+      "title": "文本置信度阈值",
+      "defaultValue": "0.0",
+      "desc": "传给 PP-OCRv5 的 textRecScoreThresh，范围 0.0-1.0。"
+    },
+    {
+      "identifier": "useDocOrientationClassify",
+      "type": "menu",
+      "title": "启用文档方向分类",
+      "defaultValue": "false",
+      "menuValues": [
+        {
+          "title": "关闭",
+          "value": "false"
+        },
+        {
+          "title": "开启",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "identifier": "useDocUnwarping",
+      "type": "menu",
+      "title": "启用文档矫正",
+      "defaultValue": "false",
+      "menuValues": [
+        {
+          "title": "关闭",
+          "value": "false"
+        },
+        {
+          "title": "开启",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "identifier": "useTextlineOrientation",
+      "type": "menu",
+      "title": "启用文本行方向分类",
+      "defaultValue": "false",
+      "menuValues": [
+        {
+          "title": "关闭",
+          "value": "false"
+        },
+        {
+          "title": "开启",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

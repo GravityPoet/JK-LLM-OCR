@@ -1,5 +1,7 @@
 # ⚡ JK-LLM-OCR（最强本地 OCR）
 
+> Bob 安装显示名：`JK-LLM-OCR—GravityPoet开发`
+
 [![GitHub release](https://img.shields.io/github/v/release/GravityPoet/JK-LLM-OCR?style=flat-square)](https://github.com/GravityPoet/JK-LLM-OCR/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
 [![Privacy](https://img.shields.io/badge/privacy-local%20only-success?style=flat-square&logo=shield)](https://github.com/GravityPoet/JK-LLM-OCR)
@@ -45,6 +47,9 @@
 - Bob 可通过该文件获取插件版本与下载地址。
 
 ## FAQ
+
+**Q: 支持流式输出(onStream)吗？**  
+A: 不支持。Bob 当前公开的 OCR 插件接口是一次性 completion 返回，不是 translate 那套流式回调模型。  
 
 **Q: 为什么比很多云端方案体感更快？**  
 A: 本方案省掉了公网传输和远端排队的开销，尤其在网络抖动时优势明显。
