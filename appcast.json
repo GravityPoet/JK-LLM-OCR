@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.1.5",
+      "desc": "去隐私：插件显示名统一为 JK-LLM-OCR；默认 OCR 地址改为 http://127.0.0.1:50000/ocr。",
+      "sha256": "9e729662a789bd4ef86af736b63ede50db3af5aecb44ac849ca5879e6f122d40",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.5/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1771150176038
+    },
+    {
       "version": "0.1.4",
       "desc": "品牌：公开版插件名统一为 JK-LLM-OCR。",
       "sha256": "ca4fdf89e164f04b88e867d0302015b2827f9afbda1d4f4fa8265d3ceaacda23",
