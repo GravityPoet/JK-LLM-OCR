@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.1.4",
+      "desc": "品牌：插件显示名改为「最强隐私本地OCR—GravityFlux开发」。",
+      "sha256": "ca4fdf89e164f04b88e867d0302015b2827f9afbda1d4f4fa8265d3ceaacda23",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.4/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1771130126528
+    },
+    {
       "version": "0.1.3",
       "desc": "隐私：移除个人标识符；文档：新增 VPS/SSH 隧道新手教程；Server：补齐服务端脚本与 systemd 模板。",
       "sha256": "5cca6487c456f9f12ad910805e128bc6ae77a3288731f6a8899f2c5b61ce1a5d",
