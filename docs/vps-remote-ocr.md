@@ -4,25 +4,25 @@
 
 - PP-OCRv5_server 的模型和推理比较吃内存/CPU
 - 你希望把推理丢到自己的 VPS 上跑
-- 但 Bob 插件仍然使用 `http://127.0.0.1:8080/ocr`（不暴露公网端口）
+- 但 Bob 插件仍然使用 `http://127.0.0.1:50000/ocr`（不暴露公网端口）
 
 核心手段：**SSH 本地端口转发（隧道）**。
 
 ## 架构（先搞懂，否则 100% 迷路）
 
 ```text
-Bob 插件 -> http://127.0.0.1:8080/ocr
+Bob 插件 -> http://127.0.0.1:50000/ocr
           (Mac 本机回环地址)
                  |
-                 |  SSH 隧道: -L 8080:127.0.0.1:8080
+                 |  SSH 隧道: -L 50000:127.0.0.1:50000
                  v
-VPS 127.0.0.1:8080 (PP-OCRv5 HTTP server)
+VPS 127.0.0.1:50000 (PP-OCRv5 HTTP server)
 ```
 
 关键点：
 
 - VPS 端的 OCR 服务 **只监听 `127.0.0.1`**，不对公网开放端口。
-- Mac 端通过 SSH 隧道把 “本机 `127.0.0.1:8080`” 映射到 “VPS `127.0.0.1:8080`”。
+- Mac 端通过 SSH 隧道把 “本机 `127.0.0.1:50000`” 映射到 “VPS `127.0.0.1:50000`”。
 - 所以 Bob 插件地址 **不需要改成公网 IP**，也不会在公网暴露 OCR 服务。
 
 隐私边界（务必理解）：
@@ -34,8 +34,8 @@ VPS 127.0.0.1:8080 (PP-OCRv5 HTTP server)
 
 你做到以下 3 点就算成功：
 
-1. VPS 上：`curl -sS http://127.0.0.1:8080/healthz` 返回 `{"status":"ok"}`
-2. Mac 上（开了隧道）：`curl -sS http://127.0.0.1:8080/healthz` 也返回 `{"status":"ok"}`
+1. VPS 上：`curl -sS http://127.0.0.1:50000/healthz` 返回 `{"status":"ok"}`
+2. Mac 上（开了隧道）：`curl -sS http://127.0.0.1:50000/healthz` 也返回 `{"status":"ok"}`
 3. Bob 里 OCR 正常出字，不再提示“请求本地 OCR 服务失败”
 
 ## 0) 前置条件
@@ -117,7 +117,7 @@ cd ~/JK-LLM-OCR/server
 另开一个 SSH 终端测试：
 
 ```bash
-curl -sS http://127.0.0.1:8080/healthz
+curl -sS http://127.0.0.1:50000/healthz
 ```
 
 返回：
@@ -157,12 +157,12 @@ sudo systemctl status ppocrv5-http.service --no-pager
 
 ## 3) 在 Mac 上建立 SSH 隧道（核心步骤）
 
-目的：把 Mac 的 `127.0.0.1:8080` 转发到 VPS 的 `127.0.0.1:8080`。
+目的：把 Mac 的 `127.0.0.1:50000` 转发到 VPS 的 `127.0.0.1:50000`。
 
 ### 3.1 一次性命令（最简单）
 
 ```bash
-ssh -N -L 8080:127.0.0.1:8080 <USER>@<YOUR_VPS_HOST>
+ssh -N -L 50000:127.0.0.1:50000 <USER>@<YOUR_VPS_HOST>
 ```
 
 说明：
@@ -184,22 +184,22 @@ Host jk-ocr-vps
 然后建立隧道：
 
 ```bash
-ssh -N -L 8080:127.0.0.1:8080 jk-ocr-vps
+ssh -N -L 50000:127.0.0.1:50000 jk-ocr-vps
 ```
 
 ### 3.3 Mac 侧验收
 
 ```bash
-curl -m 3 -sS http://127.0.0.1:8080/healthz
+curl -m 3 -sS http://127.0.0.1:50000/healthz
 ```
 
 能返回 `{"status":"ok"}` 就说明隧道打通了。
 
 ## 4) Bob 插件配置（不改公网 IP）
 
-Bob 偏好设置 -> OCR -> `最强隐私本地OCR—GravityFlux开发`：
+Bob 偏好设置 -> OCR -> `JK-LLM-OCR`：
 
-- `OCR 服务地址`：保持默认 `http://127.0.0.1:8080/ocr`
+- `OCR 服务地址`：保持默认 `http://127.0.0.1:50000/ocr`
 
 ## 5) 排错：为什么会“请求本地 OCR 服务失败”
 
@@ -210,7 +210,7 @@ Bob 偏好设置 -> OCR -> `最强隐私本地OCR—GravityFlux开发`：
 验证：
 
 ```bash
-curl -m 3 -sS http://127.0.0.1:8080/healthz
+curl -m 3 -sS http://127.0.0.1:50000/healthz
 ```
 
 失败就先把隧道开起来（见第 3 节）。
@@ -220,26 +220,26 @@ curl -m 3 -sS http://127.0.0.1:8080/healthz
 在 VPS 上：
 
 ```bash
-curl -m 3 -sS http://127.0.0.1:8080/healthz
+curl -m 3 -sS http://127.0.0.1:50000/healthz
 sudo systemctl status ppocrv5-http.service --no-pager
 sudo journalctl -u ppocrv5-http.service -n 100 --no-pager
 ```
 
-### 5.3 Mac 的 8080 端口被占用
+### 5.3 Mac 的 50000 端口被占用
 
 在 Mac 上：
 
 ```bash
-lsof -nP -iTCP:8080 -sTCP:LISTEN
+lsof -nP -iTCP:50000 -sTCP:LISTEN
 ```
 
 解决方案：
 
-- 让本机别占用 8080；或
+- 让本机别占用 50000；或
 - 换个本机端口（例如 18080）：
 
 ```bash
-ssh -N -L 18080:127.0.0.1:8080 jk-ocr-vps
+ssh -N -L 18080:127.0.0.1:50000 jk-ocr-vps
 ```
 
 并把 Bob 插件 `OCR 服务地址` 改为：`http://127.0.0.1:18080/ocr`

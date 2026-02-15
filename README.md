@@ -1,4 +1,4 @@
-# ⚡ 最强隐私本地OCR—GravityFlux开发（JK-LLM-OCR）
+# ⚡ JK-LLM-OCR（最强本地 OCR）
 
 [![GitHub release](https://img.shields.io/github/v/release/GravityPoet/JK-LLM-OCR?style=flat-square)](https://github.com/GravityPoet/JK-LLM-OCR/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
@@ -17,7 +17,7 @@
 
 ## 与云端 OCR 路线对比
 
-| 指标 | 最强隐私本地OCR—GravityFlux开发（本地） | 云端 OCR API |
+| 指标 | JK-LLM-OCR（本地） | 云端 OCR API |
 |---|---|---|
 | 网络依赖 | 默认仅本机 | 必须联网 |
 | 数据路径 | 本机处理 | 图片上传到外部服务 |
@@ -28,7 +28,7 @@
 
 1. 打开 [Releases](https://github.com/GravityPoet/JK-LLM-OCR/releases) 下载最新 `JK-LLM-OCR.bobplugin`。
 2. 双击插件文件安装到 Bob。
-3. 在 Bob 中选择 `最强隐私本地OCR—GravityFlux开发` 插件并使用默认服务地址：`http://127.0.0.1:8080/ocr`。
+3. 在 Bob 中选择 `JK-LLM-OCR` 插件并配置服务地址（VPS 隧道示例）：`http://127.0.0.1:50000/ocr`。
 4. 启动本地/远程 OCR 服务（任选其一）：
    - 本机启动：见 `docs/local-server.md`
    - VPS 远程：见 `docs/vps-remote-ocr.md`

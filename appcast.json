@@ -3,7 +3,7 @@
   "versions": [
     {
       "version": "0.1.4",
-      "desc": "品牌：插件显示名改为「最强隐私本地OCR—GravityFlux开发」。",
+      "desc": "品牌：公开版插件名统一为 JK-LLM-OCR。",
       "sha256": "ca4fdf89e164f04b88e867d0302015b2827f9afbda1d4f4fa8265d3ceaacda23",
       "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.1.4/JK-LLM-OCR.bobplugin",
       "minBobVersion": "1.6.0",
