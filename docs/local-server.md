@@ -86,7 +86,7 @@ curl -sS http://127.0.0.1:8080/healthz
 
 ## 5) Bob 插件配置
 
-- Bob 偏好设置 -> OCR -> 选择 `最强隐私本地OCR—GravityFlux开发`
+- Bob 偏好设置 -> OCR -> 选择 `JK-LLM-OCR`
 - `OCR 服务地址`：`http://127.0.0.1:8080/ocr`
 
 ## 常见问题
