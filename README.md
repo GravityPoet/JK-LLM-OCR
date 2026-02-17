@@ -113,6 +113,15 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 - OpenAI 兼容通道要填 `/v1` 或 `/chat/completions`
 - GLM-OCR 通道要填 `/layout_parsing`
 
+### Q2.2: 硅基流动提示“请求云端 OCR 服务失败”？
+
+优先检查这 4 项：
+
+- `云端通道` 必须是 `OpenAI 兼容（硅基流动等）`
+- `云端 Base URL` 推荐 `https://api.siliconflow.cn/v1`
+- `云端 API Key` 只填 key 本体，不要再手动加 `Bearer `
+- 截图格式建议 PNG/JPG（若是 TIFF/HEIC，当前版本会在插件侧直接拦截提示）
+
 ### Q2.1: GLM-OCR 返回 400，提示“仅支持 PDF/JPG/PNG、图片≤10MB”？
 
 这是 GLM-OCR 的官方限制。请检查：

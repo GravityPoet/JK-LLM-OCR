@@ -1,6 +1,6 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "category": "ocr",
   "name": "JK-LLM-OCR—GravityPoet开发",
   "summary": "最强OCR插件（本地 + 云端服务商）",
