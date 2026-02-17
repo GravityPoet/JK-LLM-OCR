@@ -1,6 +1,6 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "category": "ocr",
   "name": "JK-LLM-OCR—GravityPoet开发",
   "summary": "最强OCR插件（本地 + 云端服务商）",
@@ -39,7 +39,7 @@
       "type": "text",
       "title": "云端 Base URL",
       "defaultValue": "https://api.siliconflow.cn/v1",
-      "desc": "仅云端模式生效。支持填完整 /chat/completions，插件会自动兼容处理。",
+      "desc": "仅云端模式 + OpenAI 兼容通道生效。支持填完整 /chat/completions，插件会自动兼容处理。",
       "textConfig": {
         "type": "visible",
         "placeholderText": "https://api.siliconflow.cn/v1"
@@ -56,14 +56,53 @@
       }
     },
     {
+      "identifier": "cloudProvider",
+      "type": "menu",
+      "title": "云端通道",
+      "defaultValue": "openai-compatible",
+      "menuValues": [
+        {
+          "title": "OpenAI 兼容（硅基流动等）",
+          "value": "openai-compatible"
+        },
+        {
+          "title": "智谱 GLM-OCR（layout_parsing）",
+          "value": "zhipu-glm-ocr"
+        }
+      ],
+      "desc": "仅云端模式生效。GLM-OCR 走智谱专用接口，不是 /chat/completions。"
+    },
+    {
       "identifier": "cloudModel",
       "type": "text",
       "title": "云端模型名",
       "defaultValue": "PaddlePaddle/PaddleOCR-VL-1.5",
-      "desc": "仅云端模式生效。可自定义任何支持图像输入的模型名。",
+      "desc": "仅 OpenAI 兼容通道生效。可自定义任何支持图像输入的模型名。",
       "textConfig": {
         "type": "visible",
         "placeholderText": "PaddlePaddle/PaddleOCR-VL-1.5"
+      }
+    },
+    {
+      "identifier": "glmOcrEndpoint",
+      "type": "text",
+      "title": "GLM-OCR 接口地址",
+      "defaultValue": "https://open.bigmodel.cn/api/paas/v4/layout_parsing",
+      "desc": "仅智谱 GLM-OCR 通道生效。默认官方 layout_parsing 接口。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
+      }
+    },
+    {
+      "identifier": "glmOcrModel",
+      "type": "text",
+      "title": "GLM-OCR 模型名",
+      "defaultValue": "glm-ocr",
+      "desc": "仅智谱 GLM-OCR 通道生效。当前官方值为 glm-ocr。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "glm-ocr"
       }
     },
     {
@@ -85,14 +124,14 @@
           "value": "low"
         }
       ],
-      "desc": "仅云端模式生效。映射 image_url.detail（high/auto/low）。"
+      "desc": "仅 OpenAI 兼容通道生效。映射 image_url.detail（high/auto/low）。"
     },
     {
       "identifier": "cloudPrompt",
       "type": "text",
       "title": "云端 OCR 指令",
       "defaultValue": "请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。",
-      "desc": "仅云端模式生效。用于约束模型输出格式。",
+      "desc": "仅 OpenAI 兼容通道生效。用于约束模型输出格式。",
       "textConfig": {
         "type": "visible",
         "height": "64",

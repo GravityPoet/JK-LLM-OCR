@@ -26,6 +26,13 @@ var DEFAULT_SERVER_URL = 'http://127.0.0.1:50000/ocr';
 var DEFAULT_CLOUD_BASE_URL = 'https://api.siliconflow.cn/v1';
 var DEFAULT_CLOUD_MODEL = 'PaddlePaddle/PaddleOCR-VL-1.5';
 var DEFAULT_CLOUD_PROMPT = '请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。';
+var DEFAULT_CLOUD_PROVIDER = 'openai-compatible';
+var CLOUD_PROVIDERS = {
+    'openai-compatible': true,
+    'zhipu-glm-ocr': true,
+};
+var DEFAULT_GLM_OCR_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/layout_parsing';
+var DEFAULT_GLM_OCR_MODEL = 'glm-ocr';
 var DEFAULT_CLOUD_IMAGE_DETAIL = 'high';
 var CLOUD_IMAGE_DETAILS = {
     high: true,
@@ -93,6 +100,11 @@ function validateLocalBackend(config, done) {
 }
 
 function validateCloudBackend(config, done) {
+    if (config.cloudProvider === 'zhipu-glm-ocr') {
+        validateGlmOcrBackend(config, done);
+        return;
+    }
+
     $http.request({
         method: 'GET',
         url: buildCloudModelsUrl(config.cloudBaseUrl),
@@ -100,6 +112,24 @@ function validateCloudBackend(config, done) {
         timeout: clamp(config.requestTimeoutSec, 5, 15),
         handler: function (resp) {
             var parsed = parseCloudValidationResponse(resp);
+            if (parsed.ok) {
+                done({ result: true });
+                return;
+            }
+            done({ result: false, error: parsed.error });
+        },
+    });
+}
+
+function validateGlmOcrBackend(config, done) {
+    $http.request({
+        method: 'POST',
+        url: config.glmOcrEndpoint,
+        header: buildCloudHeaders(config.cloudApiKey),
+        body: {},
+        timeout: clamp(config.requestTimeoutSec, 5, 15),
+        handler: function (resp) {
+            var parsed = parseGlmOcrValidationResponse(resp);
             if (parsed.ok) {
                 done({ result: true });
                 return;
@@ -203,6 +233,11 @@ function runLocalOcr(query, config, imageBase64, done) {
 }
 
 function runCloudOcr(query, config, imageBase64, done) {
+    if (config.cloudProvider === 'zhipu-glm-ocr') {
+        runGlmOcr(query, config, imageBase64, done);
+        return;
+    }
+
     var cloudUrl = buildCloudChatCompletionsUrl(config.cloudBaseUrl);
     var imageUrl = buildImageDataUrl(imageBase64);
 
@@ -259,8 +294,61 @@ function runCloudOcr(query, config, imageBase64, done) {
                 texts: texts,
                 raw: {
                     backendMode: 'cloud',
+                    cloudProvider: 'openai-compatible',
                     cloudBaseUrl: config.cloudBaseUrl,
                     cloudModel: config.cloudModel,
+                    response: parsed.payload.data,
+                },
+            };
+
+            var resultFrom = chooseResultLanguage(query);
+            if (resultFrom) {
+                result.from = resultFrom;
+            }
+
+            done({ result: result });
+        },
+    });
+}
+
+function runGlmOcr(query, config, imageBase64, done) {
+    var requestBody = {
+        model: config.glmOcrModel,
+        file: imageBase64,
+    };
+
+    $http.request({
+        method: 'POST',
+        url: config.glmOcrEndpoint,
+        header: buildCloudHeaders(config.cloudApiKey),
+        body: requestBody,
+        timeout: config.requestTimeoutSec,
+        handler: function (resp) {
+            var parsed = parseGlmOcrResponse(resp);
+            if (!parsed.ok) {
+                done({ error: parsed.error });
+                return;
+            }
+
+            var texts = splitCloudTextToTexts(parsed.payload.text);
+            if (texts.length === 0) {
+                done({
+                    error: makeServiceError('notFound', 'GLM-OCR 未返回可用文本。', {
+                        glmOcrEndpoint: config.glmOcrEndpoint,
+                        glmOcrModel: config.glmOcrModel,
+                        response: parsed.payload.data,
+                    }),
+                });
+                return;
+            }
+
+            var result = {
+                texts: texts,
+                raw: {
+                    backendMode: 'cloud',
+                    cloudProvider: 'zhipu-glm-ocr',
+                    glmOcrEndpoint: config.glmOcrEndpoint,
+                    glmOcrModel: config.glmOcrModel,
                     response: parsed.payload.data,
                 },
             };
@@ -366,6 +454,52 @@ function buildLocalRuntimeConfig(requestTimeoutSec) {
 }
 
 function buildCloudRuntimeConfig(requestTimeoutSec) {
+    var cloudApiKey = normalizeCloudApiKey(getOptionString('cloudApiKey', ''));
+    if (!cloudApiKey) {
+        return {
+            ok: false,
+            error: makeServiceError('secretKey', '云端 API Key 不能为空。'),
+        };
+    }
+
+    var cloudProvider = parseCloudProvider(
+        getOptionString('cloudProvider', DEFAULT_CLOUD_PROVIDER)
+    );
+
+    if (cloudProvider === 'zhipu-glm-ocr') {
+        var glmOcrEndpointRaw = getOptionString('glmOcrEndpoint', DEFAULT_GLM_OCR_ENDPOINT);
+        var glmOcrEndpoint = normalizeHttpUrl(glmOcrEndpointRaw);
+        if (!glmOcrEndpoint) {
+            return {
+                ok: false,
+                error: makeServiceError('param', 'GLM-OCR 接口地址格式不正确。', {
+                    glmOcrEndpoint: glmOcrEndpointRaw,
+                }),
+            };
+        }
+
+        var glmOcrModelRaw = getOptionString('glmOcrModel', DEFAULT_GLM_OCR_MODEL);
+        var glmOcrModel = normalizeCloudModel(glmOcrModelRaw);
+        if (!glmOcrModel) {
+            return {
+                ok: false,
+                error: makeServiceError('param', 'GLM-OCR 模型名格式不正确。', {
+                    glmOcrModel: glmOcrModelRaw,
+                }),
+            };
+        }
+
+        return {
+            ok: true,
+            backendMode: 'cloud',
+            cloudProvider: cloudProvider,
+            requestTimeoutSec: requestTimeoutSec,
+            cloudApiKey: cloudApiKey,
+            glmOcrEndpoint: glmOcrEndpoint,
+            glmOcrModel: glmOcrModel,
+        };
+    }
+
     var cloudBaseUrlRaw = getOptionString('cloudBaseUrl', DEFAULT_CLOUD_BASE_URL);
     var cloudBaseUrl = normalizeCloudBaseUrl(cloudBaseUrlRaw);
     if (!cloudBaseUrl) {
@@ -376,14 +510,6 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
                 '云端 Base URL 格式不正确，请填写 http:// 或 https:// 开头的地址。',
                 { cloudBaseUrl: cloudBaseUrlRaw }
             ),
-        };
-    }
-
-    var cloudApiKey = normalizeCloudApiKey(getOptionString('cloudApiKey', ''));
-    if (!cloudApiKey) {
-        return {
-            ok: false,
-            error: makeServiceError('secretKey', '云端 API Key 不能为空。'),
         };
     }
 
@@ -401,6 +527,7 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
     return {
         ok: true,
         backendMode: 'cloud',
+        cloudProvider: cloudProvider,
         requestTimeoutSec: requestTimeoutSec,
         cloudBaseUrl: cloudBaseUrl,
         cloudApiKey: cloudApiKey,
@@ -441,6 +568,53 @@ function parseCloudValidationResponse(resp) {
     var message = '云端 OCR 健康检查状态码异常: ' + statusCode;
     if (statusCode === 404) {
         message = '云端 OCR 健康检查失败（HTTP 404）。请确认 Base URL 是 OpenAI 兼容入口。';
+        errorType = 'notFound';
+    }
+    if (remoteErrorMessage) {
+        message += ' ' + remoteErrorMessage;
+    }
+
+    return {
+        ok: false,
+        error: makeServiceError(errorType, message, {
+            statusCode: statusCode,
+            data: resp.data,
+        }),
+    };
+}
+
+function parseGlmOcrValidationResponse(resp) {
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', 'GLM-OCR 健康检查返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求 GLM-OCR 健康检查失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = getResponseStatusCode(resp);
+    if (statusCode === 200) {
+        return { ok: true };
+    }
+
+    if (statusCode === 400 || statusCode === 422) {
+        return { ok: true };
+    }
+
+    var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
+    var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
+    var message = 'GLM-OCR 健康检查状态码异常: ' + statusCode;
+    if (statusCode === 404) {
+        message = 'GLM-OCR 健康检查失败（HTTP 404），请确认接口地址为 /layout_parsing。';
         errorType = 'notFound';
     }
     if (remoteErrorMessage) {
@@ -509,6 +683,73 @@ function parseCloudOcrResponse(resp) {
         return {
             ok: false,
             error: makeServiceError('notFound', '云端模型没有返回可解析文本。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        payload: {
+            text: text,
+            data: resp.data,
+        },
+    };
+}
+
+function parseGlmOcrResponse(resp) {
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', 'GLM-OCR 返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求 GLM-OCR 服务失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = getResponseStatusCode(resp);
+    if (statusCode !== 200) {
+        var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
+        var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
+        var message = 'GLM-OCR 服务返回异常状态码: ' + statusCode;
+        if (statusCode === 404) {
+            message = 'GLM-OCR 请求返回 HTTP 404，请检查接口地址是否为 /layout_parsing。';
+            errorType = 'notFound';
+        }
+        if (remoteErrorMessage) {
+            message += ' ' + remoteErrorMessage;
+        }
+        return {
+            ok: false,
+            error: makeServiceError(errorType, message, {
+                statusCode: statusCode,
+                data: resp.data,
+            }),
+        };
+    }
+
+    if (!isPlainObject(resp.data)) {
+        return {
+            ok: false,
+            error: makeServiceError('api', 'GLM-OCR 响应不是合法 JSON 对象。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var text = extractGlmOcrText(resp.data);
+    if (!text) {
+        return {
+            ok: false,
+            error: makeServiceError('notFound', 'GLM-OCR 没有返回可解析文本。', {
                 data: resp.data,
             }),
         };
@@ -677,6 +918,48 @@ function extractTexts(ocrResults) {
     }
 
     return texts;
+}
+
+function extractGlmOcrText(data) {
+    if (!isPlainObject(data)) {
+        return '';
+    }
+
+    if (typeof data.md_results === 'string') {
+        return cleanupCloudText(data.md_results);
+    }
+
+    if (Array.isArray(data.layout_details)) {
+        var parts = [];
+        var i;
+        for (i = 0; i < data.layout_details.length; i += 1) {
+            var item = data.layout_details[i];
+            if (!isPlainObject(item)) {
+                continue;
+            }
+
+            if (typeof item.content === 'string' && item.content.trim()) {
+                parts.push(item.content.trim());
+            }
+        }
+
+        if (parts.length > 0) {
+            return cleanupCloudText(parts.join('\n'));
+        }
+    }
+
+    if (Array.isArray(data.results)) {
+        var resultsText = extractTextFromMessageContent(data.results);
+        if (resultsText) {
+            return cleanupCloudText(resultsText);
+        }
+    }
+
+    if (typeof data.content === 'string') {
+        return cleanupCloudText(data.content);
+    }
+
+    return '';
 }
 
 function extractCloudOcrText(data) {
@@ -1026,6 +1309,19 @@ function parseCloudImageDetail(identifier, fallback) {
         return value;
     }
     return fallback;
+}
+
+function parseCloudProvider(value) {
+    if (typeof value !== 'string') {
+        return DEFAULT_CLOUD_PROVIDER;
+    }
+
+    var normalized = value.trim().toLowerCase();
+    if (!CLOUD_PROVIDERS[normalized]) {
+        return DEFAULT_CLOUD_PROVIDER;
+    }
+
+    return normalized;
 }
 
 function buildLocalHealthUrl(serverUrl) {

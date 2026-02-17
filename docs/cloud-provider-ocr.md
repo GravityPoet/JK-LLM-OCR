@@ -1,62 +1,69 @@
-# 云端 OCR 服务商模式（以硅基流动为例）
+# 云端 OCR 服务商模式（OpenAI 兼容 + 智谱 GLM-OCR）
 
-本插件从 `v0.2.0` 起支持 `OCR 后端模式 = 云端 OpenAI 兼容 OCR`。
+本插件从 `v0.2.1` 起，云端模式支持两条通道：
+
+1. `OpenAI 兼容（硅基流动等）`
+2. `智谱 GLM-OCR（layout_parsing）`
 
 ## 目标
 
-- Bob 里切换到云端模式后可以直接识别出字
-- 以硅基流动为例，使用 `PaddlePaddle/PaddleOCR-VL-1.5`
+- Bob 切换到云端模式后可直接识别
+- 可按服务商选择正确协议，避免 `HTTP 404`
 
-## Bob 配置项（硅基流动推荐值）
+## A) OpenAI 兼容通道（硅基流动示例）
+
+Bob 配置建议：
 
 - `OCR 后端模式`：`云端 OpenAI 兼容 OCR`
+- `云端通道`：`OpenAI 兼容（硅基流动等）`
 - `云端 Base URL`：`https://api.siliconflow.cn/v1`
 - `云端 API Key`：你的 SiliconFlow API Key
 - `云端模型名`：`PaddlePaddle/PaddleOCR-VL-1.5`
 - `云端图像细节`：`high`
 - `云端 OCR 指令`：保持默认即可
 
-> 你也可以把 Base URL 直接填成完整端点：`https://api.siliconflow.cn/v1/chat/completions`。
+接口说明：
 
-## 接口约定
+- 插件请求 `POST /chat/completions`
+- 图片以 `data:image/...;base64,...` 方式发送
 
-- 插件按 OpenAI 兼容多模态格式发起 `POST /chat/completions`
-- 图片会以内联 Base64 Data URL 发送
-- 默认 `stream=false`，一次性返回识别结果
+## B) 智谱 GLM-OCR 通道（官方 layout_parsing）
+
+Bob 配置建议：
+
+- `OCR 后端模式`：`云端 OpenAI 兼容 OCR`
+- `云端通道`：`智谱 GLM-OCR（layout_parsing）`
+- `云端 API Key`：你的智谱 API Key
+- `GLM-OCR 接口地址`：`https://open.bigmodel.cn/api/paas/v4/layout_parsing`
+- `GLM-OCR 模型名`：`glm-ocr`
+
+接口说明：
+
+- 插件请求 `POST /api/paas/v4/layout_parsing`
+- Header: `Authorization: Bearer <API_KEY>`
+- Body: `{"model":"glm-ocr","file":"<base64>"}`
 
 ## 常见报错
 
-### 1) 插件校验失败：HTTP 404
+### 1) HTTP 404
 
-说明：通常是 Base URL 填错（不是 OpenAI 兼容入口）。
+最常见原因是“通道与 URL 不匹配”：
 
-排查：
+- 选了 `OpenAI 兼容`，却填了 `layout_parsing` 地址
+- 选了 `GLM-OCR`，却填了 `/v1` 或 `/chat/completions`
 
-1. 改为 `https://api.siliconflow.cn/v1`
-2. 或改为 `https://api.siliconflow.cn/v1/chat/completions`
-3. 重新在 Bob 中校验插件
+### 2) 401 / 403
 
-### 2) 插件校验失败：401/403
+- API Key 错误、过期或权限不足
+- 智谱通道必须是 `Bearer` 鉴权
 
-说明：API Key 错误、过期或无权限。
+### 3) 有响应但无文本
 
-排查：
+- 图像内容过于复杂或过小
+- 可先切回本地模式对比，或更换云端模型再试
 
-1. 检查是否粘贴了完整 Key（无多余空格）
-2. 在硅基流动控制台确认 Key 有效和账户额度正常
+## 参考（官方）
 
-### 3) OCR 返回空文本
-
-说明：模型成功返回但内容未被解析为文本。
-
-排查：
-
-1. `云端图像细节` 调到 `high`
-2. 使用默认 `云端 OCR 指令`
-3. 确认模型确实支持图像输入
-
-## 参考
-
-- SiliconFlow OpenAI 兼容接口：[https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions](https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions)
-- SiliconFlow 视觉能力示例：[https://docs.siliconflow.cn/cn/userguide/capabilities/vision](https://docs.siliconflow.cn/cn/userguide/capabilities/vision)
-- PaddleOCR-VL（含 SiliconFlow 调用示例）：[https://www.paddleocr.ai/main/version3.x/module_usage/doc_img_orientation_classification.html](https://www.paddleocr.ai/main/version3.x/module_usage/doc_img_orientation_classification.html)
+- 智谱 GLM-OCR 文档：[https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-ocr)
+- 智谱 API 参考（layout_parsing，Bearer）：[https://docs.bigmodel.cn/api-reference](https://docs.bigmodel.cn/api-reference)
+- SiliconFlow Chat Completions：[https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions](https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions)
