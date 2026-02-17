@@ -113,6 +113,13 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 - OpenAI 兼容通道要填 `/v1` 或 `/chat/completions`
 - GLM-OCR 通道要填 `/layout_parsing`
 
+### Q2.1: GLM-OCR 返回 400，提示“仅支持 PDF/JPG/PNG、图片≤10MB”？
+
+这是 GLM-OCR 的官方限制。请检查：
+
+- 图片是否是 PNG/JPG（很多剪贴板截图是 TIFF/HEIC，会被拒）
+- 图片是否超过 10MB，或 PDF 是否超过 50MB/100 页
+
 ### Q3: 会上传我的截图吗？
 
 - 本地模式：不会上传到第三方。

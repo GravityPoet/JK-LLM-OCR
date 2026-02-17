@@ -42,6 +42,7 @@ Bob 配置建议：
 - 插件请求 `POST /api/paas/v4/layout_parsing`
 - Header: `Authorization: Bearer <API_KEY>`
 - Body: `{"model":"glm-ocr","file":"<base64>"}`
+- 文件限制：仅 `PDF/JPG/PNG`；图片 `<=10MB`，PDF `<=50MB`，PDF `<=100` 页
 
 ## 常见报错
 

@@ -48,6 +48,8 @@ var MAX_PLUGIN_TIMEOUT_SEC = 300;
 var DEFAULT_TEXT_REC_SCORE_THRESH = 0.0;
 
 var MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+var GLM_OCR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+var GLM_OCR_PDF_MAX_BYTES = 50 * 1024 * 1024;
 var MAX_TEXT_ITEMS = 500;
 var MAX_TEXT_LENGTH = 2000;
 
@@ -169,6 +171,14 @@ function ocr(query, completion) {
     }
 
     if (config.backendMode === 'cloud') {
+        if (config.cloudProvider === 'zhipu-glm-ocr') {
+            var glmFileValidation = validateGlmOcrInputFile(imageBase64, query.image.length);
+            if (!glmFileValidation.ok) {
+                done({ error: glmFileValidation.error });
+                return;
+            }
+        }
+
         runCloudOcr(query, config, imageBase64, done);
         return;
     }
@@ -402,6 +412,58 @@ function validateLanguage(query) {
     }
 
     return null;
+}
+
+function validateGlmOcrInputFile(imageBase64, rawBytes) {
+    var fileKind = detectBase64FileKind(imageBase64);
+    if (fileKind !== 'png' && fileKind !== 'jpg' && fileKind !== 'pdf') {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'param',
+                'GLM-OCR 仅支持 PNG/JPG/PDF。当前图片格式疑似不支持（常见为 TIFF/HEIC）。',
+                {
+                    detectedKind: fileKind,
+                    rawBytes: rawBytes,
+                    hint: '建议改用 PNG/JPG 截图，或切换到 OpenAI 兼容通道。',
+                }
+            ),
+        };
+    }
+
+    if (typeof rawBytes === 'number' && isFinite(rawBytes) && rawBytes > 0) {
+        if ((fileKind === 'png' || fileKind === 'jpg') && rawBytes > GLM_OCR_IMAGE_MAX_BYTES) {
+            return {
+                ok: false,
+                error: makeServiceError(
+                    'param',
+                    'GLM-OCR 图片大小超限（图片 ≤10MB）。请缩小截图范围后重试。',
+                    {
+                        detectedKind: fileKind,
+                        rawBytes: rawBytes,
+                        maxBytes: GLM_OCR_IMAGE_MAX_BYTES,
+                    }
+                ),
+            };
+        }
+
+        if (fileKind === 'pdf' && rawBytes > GLM_OCR_PDF_MAX_BYTES) {
+            return {
+                ok: false,
+                error: makeServiceError(
+                    'param',
+                    'GLM-OCR PDF 大小超限（PDF ≤50MB）。请压缩后重试。',
+                    {
+                        detectedKind: fileKind,
+                        rawBytes: rawBytes,
+                        maxBytes: GLM_OCR_PDF_MAX_BYTES,
+                    }
+                ),
+            };
+        }
+    }
+
+    return { ok: true };
 }
 
 function buildRuntimeConfig() {
@@ -1364,6 +1426,29 @@ function buildCloudHeaders(apiKey) {
 
 function buildImageDataUrl(imageBase64) {
     return 'data:image/png;base64,' + imageBase64;
+}
+
+function detectBase64FileKind(imageBase64) {
+    if (typeof imageBase64 !== 'string') {
+        return 'unknown';
+    }
+
+    var value = imageBase64.trim();
+    if (!value) {
+        return 'unknown';
+    }
+
+    if (/^data:image\/png;base64,/i.test(value) || value.indexOf('iVBORw0KGgo') === 0) {
+        return 'png';
+    }
+    if (/^data:image\/jpe?g;base64,/i.test(value) || value.indexOf('/9j/') === 0) {
+        return 'jpg';
+    }
+    if (/^data:application\/pdf;base64,/i.test(value) || value.indexOf('JVBERi0') === 0) {
+        return 'pdf';
+    }
+
+    return 'unknown';
 }
 
 function getResponseStatusCode(resp) {
