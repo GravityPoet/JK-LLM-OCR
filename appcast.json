@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.2",
+      "desc": "修复：GLM-OCR 通道增加文件格式/大小前置校验（仅 PDF/JPG/PNG；图片<=10MB；PDF<=50MB），错误提示更清晰。",
+      "sha256": "ea281e59763d0a1a89dc0ac4e978ed26657b4126c009114ee1c1a75c7e119795",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.2/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1771352151901
+    },
+    {
       "version": "0.2.1",
       "desc": "修复：新增智谱 GLM-OCR（layout_parsing）通道，解决调用 glm-ocr 时 HTTP 404；保留 OpenAI 兼容通道。",
       "sha256": "e6c29b808715a53b108c8f108ff2ad1ef1ca9bfed94fda7a916d3b9f295c8f9f",
