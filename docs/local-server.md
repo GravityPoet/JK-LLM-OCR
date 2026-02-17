@@ -1,11 +1,13 @@
 # 本机 OCR 服务（macOS / Linux）
 
-本插件只负责把截图发给一个 HTTP OCR 服务（默认 `http://127.0.0.1:8080/ocr`）。下面是把服务跑在本机的最短路径。
+本插件只负责把截图发给一个 HTTP OCR 服务（默认 `http://127.0.0.1:50000/ocr`）。下面是把服务跑在本机的最短路径。
 
 ## 目标
 
-- 启动后可访问：`GET http://127.0.0.1:8080/healthz` 返回 `{"status":"ok"}`
-- Bob 插件 `OCR 服务地址` 保持默认：`http://127.0.0.1:8080/ocr`
+- 启动后可访问：`GET http://127.0.0.1:50000/healthz` 返回 `{"status":"ok"}`
+- Bob 插件配置：
+  - `OCR 后端模式 = 本地 PP-OCRv5_server`
+  - `OCR 服务地址 = http://127.0.0.1:50000/ocr`
 
 ## 1) 准备代码与 Python 环境
 
@@ -75,7 +77,7 @@ cd JK-LLM-OCR/server
 - 另开一个终端测试：
 
 ```bash
-curl -sS http://127.0.0.1:8080/healthz
+curl -sS http://127.0.0.1:50000/healthz
 ```
 
 返回：
@@ -87,7 +89,8 @@ curl -sS http://127.0.0.1:8080/healthz
 ## 5) Bob 插件配置
 
 - Bob 偏好设置 -> OCR -> 选择 `JK-LLM-OCR`
-- `OCR 服务地址`：`http://127.0.0.1:8080/ocr`
+- `OCR 后端模式`：`本地 PP-OCRv5_server`
+- `OCR 服务地址`：`http://127.0.0.1:50000/ocr`
 
 ## 常见问题
 
@@ -95,6 +98,7 @@ curl -sS http://127.0.0.1:8080/healthz
 
 按顺序排查：
 
-1. 本机服务是否在跑：`curl -m 3 -sS http://127.0.0.1:8080/healthz`
-2. 端口是否被占用：`lsof -nP -iTCP:8080 -sTCP:LISTEN`
-3. Bob 里 `OCR 服务地址` 是否仍是 `http://127.0.0.1:8080/ocr`
+1. 本机服务是否在跑：`curl -m 3 -sS http://127.0.0.1:50000/healthz`
+2. 端口是否被占用：`lsof -nP -iTCP:50000 -sTCP:LISTEN`
+3. Bob 里 `OCR 后端模式` 是否为“本地 PP-OCRv5_server”
+4. Bob 里 `OCR 服务地址` 是否仍是 `http://127.0.0.1:50000/ocr`

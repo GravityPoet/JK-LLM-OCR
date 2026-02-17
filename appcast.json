@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.0",
+      "desc": "新增：OCR 后端模式可切换本地/云端；支持 OpenAI 兼容多模态 OCR（含硅基流动 PaddleOCR-VL-1.5 配置）。",
+      "sha256": "2f126acdd522896c89730a3f1fe3408303564f9626251bfec4b7320b9a1c19dd",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.0/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1771349531514
+    },
+    {
       "version": "0.1.8",
       "desc": "品牌：安装显示名改为 JK-LLM-OCR—GravityPoet开发；修正：移除 OCR 插件中误导性的“思考强度/输出模式”配置，保留 healthz 校验。",
       "sha256": "b28f3e40b3deae0d47da6579bc21587e0ec5a87b3af4d7f26cda000a383b0642",

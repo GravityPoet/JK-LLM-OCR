@@ -1,39 +1,55 @@
-# ⚡ JK-LLM-OCR（最强本地 OCR）
+# ⚡ JK-LLM-OCR（本地 + 云端 OCR）
 
 > Bob 安装显示名：`JK-LLM-OCR—GravityPoet开发`
 
 [![GitHub release](https://img.shields.io/github/v/release/GravityPoet/JK-LLM-OCR?style=flat-square)](https://github.com/GravityPoet/JK-LLM-OCR/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
-[![Privacy](https://img.shields.io/badge/privacy-local%20only-success?style=flat-square&logo=shield)](https://github.com/GravityPoet/JK-LLM-OCR)
+[![Privacy](https://img.shields.io/badge/privacy-local%20first-success?style=flat-square&logo=shield)](https://github.com/GravityPoet/JK-LLM-OCR)
 
-> 拒绝云端 OCR 的等待、计费与隐私外发风险。  
-> 这是一个为 [Bob](https://bobtranslate.com/) 打造的 **隐私优先** OCR 插件：默认请求本机 `127.0.0.1` 服务，不依赖第三方云 OCR API，不消耗云端 Token。
+> 默认是“隐私优先”的本地 OCR。  
+> 现在也支持切换到云端服务商（OpenAI 兼容多模态），例如硅基流动 `PaddlePaddle/PaddleOCR-VL-1.5`。
 
 ## 核心特性
 
-- `低延迟`：不走云端往返，默认本机服务秒回。
-- `隐私优先`：截图不上传到第三方云 OCR（默认配置）。
-- `长期免费`：不走按次计费的云 OCR API 路线。
+- `双通道`：本地 PP-OCRv5 与云端 OpenAI 兼容 OCR 可切换。
+- `低延迟`：默认本机服务秒回。
+- `隐私优先`：默认不上传第三方云 OCR。
+- `可扩展`：云端模式支持自定义 Base URL / API Key / 模型名。
 - `中英混排可用`：基于 PaddleOCR 的 `PP-OCRv5_server` 模型，适配开发与文档场景。
 - `可远程`：支持把推理跑在你的 VPS 上，Mac 端通过 SSH 隧道调用（仍保持 `127.0.0.1` 配置，不暴露公网端口）。
 
-## 与云端 OCR 路线对比
+## 模式说明
 
-| 指标 | JK-LLM-OCR（本地） | 云端 OCR API |
+- 本地模式（默认）：`OCR 后端模式 = 本地 PP-OCRv5_server`
+- 云端模式：`OCR 后端模式 = 云端 OpenAI 兼容 OCR`
+
+### 硅基流动示例（PaddleOCR-VL-1.5）
+
+- 云端 Base URL：`https://api.siliconflow.cn/v1`
+- 云端模型名：`PaddlePaddle/PaddleOCR-VL-1.5`
+- 云端 API Key：你的 SiliconFlow API Key
+- 云端图像细节：建议 `high`
+
+> 也可以填写完整端点 `.../chat/completions`，插件会自动兼容。
+>
+> 详细教程：`docs/cloud-provider-ocr.md`
+
+## 本地与云端对比
+
+| 指标 | 本地模式 | 云端模式 |
 |---|---|---|
 | 网络依赖 | 默认仅本机 | 必须联网 |
 | 数据路径 | 本机处理 | 图片上传到外部服务 |
-| 成本模型 | 本地算力 | 常见为按量计费 |
+| 成本模型 | 本地算力 | 常见按量计费 |
 | 可用性 | 断网可用 | 网络异常会失败 |
 
 ## 安装
 
 1. 打开 [Releases](https://github.com/GravityPoet/JK-LLM-OCR/releases) 下载最新 `JK-LLM-OCR.bobplugin`。
 2. 双击插件文件安装到 Bob。
-3. 在 Bob 中选择 `JK-LLM-OCR` 插件并配置服务地址（VPS 隧道示例）：`http://127.0.0.1:50000/ocr`。
-4. 启动本地/远程 OCR 服务（任选其一）：
-   - 本机启动：见 `docs/local-server.md`
-   - VPS 远程：见 `docs/vps-remote-ocr.md`
+3. 在 Bob 中选择 `JK-LLM-OCR`，配置 `OCR 后端模式`。
+4. 如果用本地模式：服务地址示例 `http://127.0.0.1:50000/ocr`，启动方式见 `docs/local-server.md` 或 `docs/vps-remote-ocr.md`。
+5. 如果用云端模式：填写 `云端 Base URL`、`云端 API Key`、`云端模型名`。
 
 ## VPS 远程运行（SSH 隧道）
 
@@ -51,11 +67,11 @@
 **Q: 支持流式输出(onStream)吗？**  
 A: 不支持。Bob 当前公开的 OCR 插件接口是一次性 completion 返回，不是 translate 那套流式回调模型。  
 
-**Q: 为什么比很多云端方案体感更快？**  
-A: 本方案省掉了公网传输和远端排队的开销，尤其在网络抖动时优势明显。
+**Q: 为什么本地模式比很多云端方案体感更快？**  
+A: 省掉了公网传输和远端排队开销，网络抖动时优势更明显。
 
 **Q: 会不会上传我的截图？**  
-A: 默认配置只请求本机服务地址 `127.0.0.1`。如果你手动改成远程 URL，则会按你的配置发送请求。
+A: 本地模式不会上传到第三方；云端模式会把截图发送到你配置的云端服务商。
 
 **Q: 服务必须常驻吗？**  
 A: 不必须。你可以随用随启，用完关闭。
@@ -63,4 +79,4 @@ A: 不必须。你可以随用随启，用完关闭。
 ## 声明
 
 - 本仓库为公开发布版，已去除私有称呼。
-- 本项目定位是“隐私优先 + 低延迟”的本地 OCR 方案；如果你把服务跑在 VPS，上屏截图会通过 SSH 隧道发送到你的 VPS 进行识别。
+- 本项目定位为“本地优先 + 云端可扩展”的 OCR 方案。

@@ -1,9 +1,9 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "category": "ocr",
   "name": "JK-LLM-OCR—GravityPoet开发",
-  "summary": "最强本地OCR插件",
+  "summary": "最强OCR插件（本地 + 云端服务商）",
   "icon": "",
   "author": "JK-LLM-OCR Contributors",
   "homepage": "https://github.com/GravityPoet/JK-LLM-OCR",
@@ -11,30 +11,113 @@
   "minBobVersion": "1.6.0",
   "options": [
     {
+      "identifier": "ocrBackendMode",
+      "type": "menu",
+      "title": "OCR 后端模式",
+      "defaultValue": "local",
+      "menuValues": [
+        {
+          "title": "本地 PP-OCRv5_server",
+          "value": "local"
+        },
+        {
+          "title": "云端 OpenAI 兼容 OCR",
+          "value": "cloud"
+        }
+      ],
+      "desc": "默认本地模式。切到云端后，将调用 OpenAI 兼容多模态接口（如硅基流动）。"
+    },
+    {
       "identifier": "serverUrl",
       "type": "text",
       "title": "OCR 服务地址",
       "defaultValue": "http://127.0.0.1:50000/ocr",
-      "desc": "本地 PP-OCRv5_server 的 HTTP 地址，必须以 http:// 或 https:// 开头。"
+      "desc": "仅本地模式生效。本地 PP-OCRv5_server 的 HTTP 地址，必须以 http:// 或 https:// 开头。"
+    },
+    {
+      "identifier": "cloudBaseUrl",
+      "type": "text",
+      "title": "云端 Base URL",
+      "defaultValue": "https://api.siliconflow.cn/v1",
+      "desc": "仅云端模式生效。支持填完整 /chat/completions，插件会自动兼容处理。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "https://api.siliconflow.cn/v1"
+      }
+    },
+    {
+      "identifier": "cloudApiKey",
+      "type": "text",
+      "title": "云端 API Key",
+      "desc": "仅云端模式生效。示例：硅基流动 API Key。",
+      "textConfig": {
+        "type": "secure",
+        "placeholderText": "sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "identifier": "cloudModel",
+      "type": "text",
+      "title": "云端模型名",
+      "defaultValue": "PaddlePaddle/PaddleOCR-VL-1.5",
+      "desc": "仅云端模式生效。可自定义任何支持图像输入的模型名。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "PaddlePaddle/PaddleOCR-VL-1.5"
+      }
+    },
+    {
+      "identifier": "cloudImageDetail",
+      "type": "menu",
+      "title": "云端图像细节",
+      "defaultValue": "high",
+      "menuValues": [
+        {
+          "title": "高（识别更稳）",
+          "value": "high"
+        },
+        {
+          "title": "自动",
+          "value": "auto"
+        },
+        {
+          "title": "低（更省）",
+          "value": "low"
+        }
+      ],
+      "desc": "仅云端模式生效。映射 image_url.detail（high/auto/low）。"
+    },
+    {
+      "identifier": "cloudPrompt",
+      "type": "text",
+      "title": "云端 OCR 指令",
+      "defaultValue": "请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。",
+      "desc": "仅云端模式生效。用于约束模型输出格式。",
+      "textConfig": {
+        "type": "visible",
+        "height": "64",
+        "placeholderText": "请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。"
+      }
     },
     {
       "identifier": "requestTimeoutSec",
       "type": "text",
       "title": "请求超时(秒)",
       "defaultValue": "30",
-      "desc": "单次 OCR 请求超时时间，范围 5-180 秒。"
+      "desc": "单次 OCR 请求超时时间，范围 5-180 秒（本地/云端通用）。"
     },
     {
       "identifier": "textRecScoreThresh",
       "type": "text",
       "title": "文本置信度阈值",
       "defaultValue": "0.0",
-      "desc": "传给 PP-OCRv5 的 textRecScoreThresh，范围 0.0-1.0。"
+      "desc": "仅本地模式生效。传给 PP-OCRv5 的 textRecScoreThresh，范围 0.0-1.0。"
     },
     {
       "identifier": "useDocOrientationClassify",
       "type": "menu",
       "title": "启用文档方向分类",
+      "desc": "仅本地模式生效。",
       "defaultValue": "false",
       "menuValues": [
         {
@@ -51,6 +134,7 @@
       "identifier": "useDocUnwarping",
       "type": "menu",
       "title": "启用文档矫正",
+      "desc": "仅本地模式生效。",
       "defaultValue": "false",
       "menuValues": [
         {
@@ -67,6 +151,7 @@
       "identifier": "useTextlineOrientation",
       "type": "menu",
       "title": "启用文本行方向分类",
+      "desc": "仅本地模式生效。",
       "defaultValue": "false",
       "menuValues": [
         {

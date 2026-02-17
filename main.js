@@ -16,7 +16,23 @@ var ERROR_TYPES = {
     notFound: true,
 };
 
+var OCR_BACKEND_MODES = {
+    local: true,
+    cloud: true,
+};
+
+var DEFAULT_OCR_BACKEND_MODE = 'local';
 var DEFAULT_SERVER_URL = 'http://127.0.0.1:50000/ocr';
+var DEFAULT_CLOUD_BASE_URL = 'https://api.siliconflow.cn/v1';
+var DEFAULT_CLOUD_MODEL = 'PaddlePaddle/PaddleOCR-VL-1.5';
+var DEFAULT_CLOUD_PROMPT = '请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。';
+var DEFAULT_CLOUD_IMAGE_DETAIL = 'high';
+var CLOUD_IMAGE_DETAILS = {
+    high: true,
+    auto: true,
+    low: true,
+};
+
 var DEFAULT_REQUEST_TIMEOUT_SEC = 30;
 var MIN_REQUEST_TIMEOUT_SEC = 5;
 var MAX_REQUEST_TIMEOUT_SEC = 180;
@@ -51,18 +67,44 @@ function pluginValidate(completion) {
         return;
     }
 
+    if (config.backendMode === 'cloud') {
+        validateCloudBackend(config, done);
+        return;
+    }
+
+    validateLocalBackend(config, done);
+}
+
+function validateLocalBackend(config, done) {
     $http.request({
         method: 'GET',
-        url: buildHealthUrl(config.serverUrl),
+        url: buildLocalHealthUrl(config.serverUrl),
         timeout: clamp(config.requestTimeoutSec, 5, 10),
         handler: function (resp) {
-            var healthResult = parseHealthResponse(resp);
+            var healthResult = parseLocalHealthResponse(resp);
             if (healthResult.ok) {
                 done({ result: true });
                 return;
             }
 
             done({ result: false, error: healthResult.error });
+        },
+    });
+}
+
+function validateCloudBackend(config, done) {
+    $http.request({
+        method: 'GET',
+        url: buildCloudModelsUrl(config.cloudBaseUrl),
+        header: buildCloudHeaders(config.cloudApiKey),
+        timeout: clamp(config.requestTimeoutSec, 5, 15),
+        handler: function (resp) {
+            var parsed = parseCloudValidationResponse(resp);
+            if (parsed.ok) {
+                done({ result: true });
+                return;
+            }
+            done({ result: false, error: parsed.error });
         },
     });
 }
@@ -96,6 +138,15 @@ function ocr(query, completion) {
         return;
     }
 
+    if (config.backendMode === 'cloud') {
+        runCloudOcr(query, config, imageBase64, done);
+        return;
+    }
+
+    runLocalOcr(query, config, imageBase64, done);
+}
+
+function runLocalOcr(query, config, imageBase64, done) {
     var requestBody = {
         file: imageBase64,
         fileType: 1,
@@ -115,7 +166,7 @@ function ocr(query, completion) {
         body: requestBody,
         timeout: config.requestTimeoutSec,
         handler: function (resp) {
-            var parsed = parseServerResponse(resp);
+            var parsed = parseLocalServerResponse(resp);
             if (!parsed.ok) {
                 done({ error: parsed.error });
                 return;
@@ -135,8 +186,82 @@ function ocr(query, completion) {
             var result = {
                 texts: texts,
                 raw: {
+                    backendMode: 'local',
                     logId: parsed.payload.logId,
                     result: parsed.payload.result,
+                },
+            };
+
+            var resultFrom = chooseResultLanguage(query);
+            if (resultFrom) {
+                result.from = resultFrom;
+            }
+
+            done({ result: result });
+        },
+    });
+}
+
+function runCloudOcr(query, config, imageBase64, done) {
+    var cloudUrl = buildCloudChatCompletionsUrl(config.cloudBaseUrl);
+    var imageUrl = buildImageDataUrl(imageBase64);
+
+    var requestBody = {
+        model: config.cloudModel,
+        stream: false,
+        temperature: 0,
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: config.cloudPrompt,
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: {
+                            url: imageUrl,
+                            detail: config.cloudImageDetail,
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    $http.request({
+        method: 'POST',
+        url: cloudUrl,
+        header: buildCloudHeaders(config.cloudApiKey),
+        body: requestBody,
+        timeout: config.requestTimeoutSec,
+        handler: function (resp) {
+            var parsed = parseCloudOcrResponse(resp);
+            if (!parsed.ok) {
+                done({ error: parsed.error });
+                return;
+            }
+
+            var texts = splitCloudTextToTexts(parsed.payload.text);
+            if (texts.length === 0) {
+                done({
+                    error: makeServiceError('notFound', '云端模型未返回可用文本。', {
+                        cloudBaseUrl: config.cloudBaseUrl,
+                        cloudModel: config.cloudModel,
+                        response: parsed.payload.data,
+                    }),
+                });
+                return;
+            }
+
+            var result = {
+                texts: texts,
+                raw: {
+                    backendMode: 'cloud',
+                    cloudBaseUrl: config.cloudBaseUrl,
+                    cloudModel: config.cloudModel,
+                    response: parsed.payload.data,
                 },
             };
 
@@ -192,8 +317,24 @@ function validateLanguage(query) {
 }
 
 function buildRuntimeConfig() {
+    var requestTimeoutSec = parseIntegerInRange(
+        getOptionString('requestTimeoutSec', String(DEFAULT_REQUEST_TIMEOUT_SEC)),
+        DEFAULT_REQUEST_TIMEOUT_SEC,
+        MIN_REQUEST_TIMEOUT_SEC,
+        MAX_REQUEST_TIMEOUT_SEC
+    );
+
+    var backendMode = parseBackendMode(getOptionString('ocrBackendMode', DEFAULT_OCR_BACKEND_MODE));
+    if (backendMode === 'cloud') {
+        return buildCloudRuntimeConfig(requestTimeoutSec);
+    }
+
+    return buildLocalRuntimeConfig(requestTimeoutSec);
+}
+
+function buildLocalRuntimeConfig(requestTimeoutSec) {
     var serverUrlRaw = getOptionString('serverUrl', DEFAULT_SERVER_URL);
-    var serverUrl = normalizeServerUrl(serverUrlRaw);
+    var serverUrl = normalizeLocalServerUrl(serverUrlRaw);
     if (!serverUrl) {
         return {
             ok: false,
@@ -205,35 +346,184 @@ function buildRuntimeConfig() {
         };
     }
 
-    var requestTimeoutSec = parseIntegerInRange(
-        getOptionString('requestTimeoutSec', String(DEFAULT_REQUEST_TIMEOUT_SEC)),
-        DEFAULT_REQUEST_TIMEOUT_SEC,
-        MIN_REQUEST_TIMEOUT_SEC,
-        MAX_REQUEST_TIMEOUT_SEC
-    );
-
     var textRecScoreThresh = parseFloatInRange(
         getOptionString('textRecScoreThresh', String(DEFAULT_TEXT_REC_SCORE_THRESH)),
         DEFAULT_TEXT_REC_SCORE_THRESH,
         0,
         1
     );
-    var useDocOrientationClassify = parseMenuBoolean('useDocOrientationClassify', false);
-    var useDocUnwarping = parseMenuBoolean('useDocUnwarping', false);
-    var useTextlineOrientation = parseMenuBoolean('useTextlineOrientation', false);
 
     return {
         ok: true,
+        backendMode: 'local',
         serverUrl: serverUrl,
         requestTimeoutSec: requestTimeoutSec,
         textRecScoreThresh: textRecScoreThresh,
-        useDocOrientationClassify: useDocOrientationClassify,
-        useDocUnwarping: useDocUnwarping,
-        useTextlineOrientation: useTextlineOrientation,
+        useDocOrientationClassify: parseMenuBoolean('useDocOrientationClassify', false),
+        useDocUnwarping: parseMenuBoolean('useDocUnwarping', false),
+        useTextlineOrientation: parseMenuBoolean('useTextlineOrientation', false),
     };
 }
 
-function parseServerResponse(resp) {
+function buildCloudRuntimeConfig(requestTimeoutSec) {
+    var cloudBaseUrlRaw = getOptionString('cloudBaseUrl', DEFAULT_CLOUD_BASE_URL);
+    var cloudBaseUrl = normalizeCloudBaseUrl(cloudBaseUrlRaw);
+    if (!cloudBaseUrl) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'param',
+                '云端 Base URL 格式不正确，请填写 http:// 或 https:// 开头的地址。',
+                { cloudBaseUrl: cloudBaseUrlRaw }
+            ),
+        };
+    }
+
+    var cloudApiKey = normalizeCloudApiKey(getOptionString('cloudApiKey', ''));
+    if (!cloudApiKey) {
+        return {
+            ok: false,
+            error: makeServiceError('secretKey', '云端 API Key 不能为空。'),
+        };
+    }
+
+    var cloudModelRaw = getOptionString('cloudModel', DEFAULT_CLOUD_MODEL);
+    var cloudModel = normalizeCloudModel(cloudModelRaw);
+    if (!cloudModel) {
+        return {
+            ok: false,
+            error: makeServiceError('param', '云端模型名格式不正确。', {
+                cloudModel: cloudModelRaw,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        backendMode: 'cloud',
+        requestTimeoutSec: requestTimeoutSec,
+        cloudBaseUrl: cloudBaseUrl,
+        cloudApiKey: cloudApiKey,
+        cloudModel: cloudModel,
+        cloudImageDetail: parseCloudImageDetail('cloudImageDetail', DEFAULT_CLOUD_IMAGE_DETAIL),
+        cloudPrompt: normalizeCloudPrompt(
+            getOptionString('cloudPrompt', DEFAULT_CLOUD_PROMPT),
+            DEFAULT_CLOUD_PROMPT
+        ),
+    };
+}
+
+function parseCloudValidationResponse(resp) {
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '云端健康检查返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求云端 OCR 健康检查失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = getResponseStatusCode(resp);
+    if (statusCode === 200) {
+        return { ok: true };
+    }
+
+    var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
+    var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
+    var message = '云端 OCR 健康检查状态码异常: ' + statusCode;
+    if (statusCode === 404) {
+        message = '云端 OCR 健康检查失败（HTTP 404）。请确认 Base URL 是 OpenAI 兼容入口。';
+        errorType = 'notFound';
+    }
+    if (remoteErrorMessage) {
+        message += ' ' + remoteErrorMessage;
+    }
+
+    return {
+        ok: false,
+        error: makeServiceError(errorType, message, {
+            statusCode: statusCode,
+            data: resp.data,
+        }),
+    };
+}
+
+function parseCloudOcrResponse(resp) {
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '云端 OCR 返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求云端 OCR 服务失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = getResponseStatusCode(resp);
+    if (statusCode !== 200) {
+        var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
+        var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
+        var message = '云端 OCR 服务返回异常状态码: ' + statusCode;
+        if (statusCode === 404) {
+            message = '云端 OCR 请求返回 HTTP 404，请检查 Base URL / 接口路径配置。';
+            errorType = 'notFound';
+        }
+        if (remoteErrorMessage) {
+            message += ' ' + remoteErrorMessage;
+        }
+        return {
+            ok: false,
+            error: makeServiceError(errorType, message, {
+                statusCode: statusCode,
+                data: resp.data,
+            }),
+        };
+    }
+
+    if (!isPlainObject(resp.data)) {
+        return {
+            ok: false,
+            error: makeServiceError('api', '云端 OCR 响应不是合法 JSON 对象。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var text = extractCloudOcrText(resp.data);
+    if (!text) {
+        return {
+            ok: false,
+            error: makeServiceError('notFound', '云端模型没有返回可解析文本。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        payload: {
+            text: text,
+            data: resp.data,
+        },
+    };
+}
+
+function parseLocalServerResponse(resp) {
     if (!isPlainObject(resp)) {
         return {
             ok: false,
@@ -251,7 +541,7 @@ function parseServerResponse(resp) {
         };
     }
 
-    var statusCode = resp.response && resp.response.statusCode;
+    var statusCode = getResponseStatusCode(resp);
     if (statusCode !== 200) {
         return {
             ok: false,
@@ -308,7 +598,7 @@ function parseServerResponse(resp) {
     };
 }
 
-function parseHealthResponse(resp) {
+function parseLocalHealthResponse(resp) {
     if (!isPlainObject(resp)) {
         return {
             ok: false,
@@ -326,7 +616,7 @@ function parseHealthResponse(resp) {
         };
     }
 
-    var statusCode = resp.response && resp.response.statusCode;
+    var statusCode = getResponseStatusCode(resp);
     if (statusCode !== 200) {
         return {
             ok: false,
@@ -387,6 +677,176 @@ function extractTexts(ocrResults) {
     }
 
     return texts;
+}
+
+function extractCloudOcrText(data) {
+    if (!isPlainObject(data)) {
+        return '';
+    }
+
+    if (typeof data.output_text === 'string') {
+        return cleanupCloudText(data.output_text);
+    }
+    if (typeof data.result === 'string') {
+        return cleanupCloudText(data.result);
+    }
+
+    if (Array.isArray(data.output)) {
+        var outputParts = [];
+        var i;
+        for (i = 0; i < data.output.length; i += 1) {
+            var outputItem = data.output[i];
+            if (!isPlainObject(outputItem)) {
+                continue;
+            }
+
+            if (outputItem.type === 'message') {
+                var outputMessageText = extractTextFromMessageContent(outputItem.content);
+                if (outputMessageText) {
+                    outputParts.push(outputMessageText);
+                }
+                continue;
+            }
+
+            if (typeof outputItem.text === 'string') {
+                outputParts.push(outputItem.text);
+            }
+        }
+
+        if (outputParts.length > 0) {
+            return cleanupCloudText(outputParts.join('\n'));
+        }
+    }
+
+    if (Array.isArray(data.choices) && data.choices.length > 0) {
+        var firstChoice = data.choices[0];
+        if (isPlainObject(firstChoice)) {
+            if (isPlainObject(firstChoice.message)) {
+                var textFromMessage = extractTextFromMessageContent(firstChoice.message.content);
+                if (textFromMessage) {
+                    return cleanupCloudText(textFromMessage);
+                }
+                if (typeof firstChoice.message.text === 'string') {
+                    return cleanupCloudText(firstChoice.message.text);
+                }
+            }
+
+            if (typeof firstChoice.text === 'string') {
+                return cleanupCloudText(firstChoice.text);
+            }
+        }
+    }
+
+    return '';
+}
+
+function splitCloudTextToTexts(text) {
+    var normalized = cleanupCloudText(text);
+    if (!normalized) {
+        return [];
+    }
+
+    var lines = normalized.split('\n');
+    var texts = [];
+    var i;
+    for (i = 0; i < lines.length; i += 1) {
+        if (texts.length >= MAX_TEXT_ITEMS) {
+            break;
+        }
+
+        var line = normalizeExtractedText(lines[i]);
+        if (!line) {
+            continue;
+        }
+
+        texts.push({ text: line });
+    }
+
+    if (texts.length === 0) {
+        var single = normalizeExtractedText(normalized);
+        if (single) {
+            texts.push({ text: single });
+        }
+    }
+
+    return texts;
+}
+
+function extractTextFromMessageContent(content) {
+    if (typeof content === 'string') {
+        return content;
+    }
+
+    if (Array.isArray(content)) {
+        var parts = [];
+        var i;
+        for (i = 0; i < content.length; i += 1) {
+            var item = content[i];
+            if (typeof item === 'string') {
+                parts.push(item);
+                continue;
+            }
+            if (!isPlainObject(item)) {
+                continue;
+            }
+
+            if (typeof item.text === 'string') {
+                parts.push(item.text);
+                continue;
+            }
+            if (typeof item.output_text === 'string') {
+                parts.push(item.output_text);
+                continue;
+            }
+            if (typeof item.content === 'string') {
+                parts.push(item.content);
+                continue;
+            }
+            if (Array.isArray(item.content)) {
+                var nested = extractTextFromMessageContent(item.content);
+                if (nested) {
+                    parts.push(nested);
+                }
+            }
+        }
+        return parts.join('\n');
+    }
+
+    if (isPlainObject(content)) {
+        if (typeof content.text === 'string') {
+            return content.text;
+        }
+        if (Array.isArray(content.content)) {
+            return extractTextFromMessageContent(content.content);
+        }
+    }
+
+    return '';
+}
+
+function cleanupCloudText(text) {
+    if (typeof text !== 'string') {
+        return '';
+    }
+
+    var normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!normalized) {
+        return '';
+    }
+
+    normalized = normalized
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+        .trim();
+
+    if (/^```/.test(normalized) && /```$/.test(normalized)) {
+        normalized = normalized
+            .replace(/^```[A-Za-z0-9_\-]*\n?/, '')
+            .replace(/\n?```$/, '')
+            .trim();
+    }
+
+    return normalized;
 }
 
 function chooseResultLanguage(query) {
@@ -470,7 +930,37 @@ function normalizeExtractedText(text) {
     return normalized;
 }
 
-function normalizeServerUrl(input) {
+function parseBackendMode(value) {
+    if (typeof value !== 'string') {
+        return DEFAULT_OCR_BACKEND_MODE;
+    }
+
+    var normalized = value.trim().toLowerCase();
+    if (!OCR_BACKEND_MODES[normalized]) {
+        return DEFAULT_OCR_BACKEND_MODE;
+    }
+
+    return normalized;
+}
+
+function normalizeLocalServerUrl(input) {
+    var value = normalizeHttpUrl(input);
+    if (!value) {
+        return null;
+    }
+
+    if (!/\/ocr$/.test(value)) {
+        value += '/ocr';
+    }
+
+    return value;
+}
+
+function normalizeCloudBaseUrl(input) {
+    return normalizeHttpUrl(input);
+}
+
+function normalizeHttpUrl(input) {
     if (typeof input !== 'string') {
         return null;
     }
@@ -484,19 +974,138 @@ function normalizeServerUrl(input) {
         return null;
     }
 
-    value = value.replace(/\/+$/, '');
-    if (!/\/ocr$/.test(value)) {
-        value += '/ocr';
+    return value.replace(/\/+$/, '');
+}
+
+function normalizeCloudApiKey(input) {
+    if (typeof input !== 'string') {
+        return '';
+    }
+
+    var value = input.trim();
+    if (value.length < 8 || value.length > 4096) {
+        return '';
     }
 
     return value;
 }
 
-function buildHealthUrl(serverUrl) {
+function normalizeCloudModel(input) {
+    if (typeof input !== 'string') {
+        return '';
+    }
+
+    var value = input.trim();
+    if (value.length < 2 || value.length > 200) {
+        return '';
+    }
+
+    return value;
+}
+
+function normalizeCloudPrompt(input, fallback) {
+    if (typeof input !== 'string') {
+        return fallback;
+    }
+
+    var value = input.trim();
+    if (!value) {
+        return fallback;
+    }
+
+    if (value.length > 500) {
+        return value.slice(0, 500);
+    }
+
+    return value;
+}
+
+function parseCloudImageDetail(identifier, fallback) {
+    var value = getOptionString(identifier, fallback).toLowerCase();
+    if (CLOUD_IMAGE_DETAILS[value]) {
+        return value;
+    }
+    return fallback;
+}
+
+function buildLocalHealthUrl(serverUrl) {
     if (typeof serverUrl !== 'string') {
         return '';
     }
     return serverUrl.replace(/\/ocr$/, '/healthz');
+}
+
+function buildCloudChatCompletionsUrl(baseUrl) {
+    if (typeof baseUrl !== 'string') {
+        return '';
+    }
+
+    if (/\/chat\/completions$/.test(baseUrl)) {
+        return baseUrl;
+    }
+
+    return baseUrl + '/chat/completions';
+}
+
+function buildCloudModelsUrl(baseUrl) {
+    if (typeof baseUrl !== 'string') {
+        return '';
+    }
+
+    if (/\/chat\/completions$/.test(baseUrl)) {
+        return baseUrl.replace(/\/chat\/completions$/, '/models');
+    }
+
+    return baseUrl + '/models';
+}
+
+function buildCloudHeaders(apiKey) {
+    return {
+        Authorization: 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+    };
+}
+
+function buildImageDataUrl(imageBase64) {
+    return 'data:image/png;base64,' + imageBase64;
+}
+
+function getResponseStatusCode(resp) {
+    if (!isPlainObject(resp) || !isPlainObject(resp.response)) {
+        return 0;
+    }
+
+    var statusCode = resp.response.statusCode;
+    if (typeof statusCode !== 'number') {
+        return 0;
+    }
+
+    return statusCode;
+}
+
+function extractRemoteErrorMessage(data) {
+    if (typeof data === 'string') {
+        return data.trim();
+    }
+
+    if (!isPlainObject(data)) {
+        return '';
+    }
+
+    if (typeof data.message === 'string' && data.message.trim()) {
+        return data.message.trim();
+    }
+
+    if (isPlainObject(data.error)) {
+        if (typeof data.error.message === 'string' && data.error.message.trim()) {
+            return data.error.message.trim();
+        }
+        if (typeof data.error.code === 'string' && data.error.code.trim()) {
+            return data.error.code.trim();
+        }
+    }
+
+    return '';
 }
 
 function parseIntegerInRange(input, fallback, min, max) {
