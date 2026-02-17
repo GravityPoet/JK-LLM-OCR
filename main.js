@@ -177,6 +177,12 @@ function ocr(query, completion) {
                 done({ error: glmFileValidation.error });
                 return;
             }
+        } else {
+            var openAiFileValidation = validateOpenAiCompatibleInputFile(imageBase64);
+            if (!openAiFileValidation.ok) {
+                done({ error: openAiFileValidation.error });
+                return;
+            }
         }
 
         runCloudOcr(query, config, imageBase64, done);
@@ -249,7 +255,7 @@ function runCloudOcr(query, config, imageBase64, done) {
     }
 
     var cloudUrl = buildCloudChatCompletionsUrl(config.cloudBaseUrl);
-    var imageUrl = buildImageDataUrl(imageBase64);
+    var imageUrl = buildImageDataUrl(imageBase64, detectBase64FileKind(imageBase64));
 
     var requestBody = {
         model: config.cloudModel,
@@ -412,6 +418,28 @@ function validateLanguage(query) {
     }
 
     return null;
+}
+
+function validateOpenAiCompatibleInputFile(imageBase64) {
+    var fileKind = detectBase64FileKind(imageBase64);
+    if (fileKind === 'png' || fileKind === 'jpg') {
+        return { ok: true };
+    }
+
+    var message =
+        'OpenAI 兼容通道当前仅支持 PNG/JPG 图片输入。请改用 PNG/JPG 截图，或切换到 GLM-OCR 通道。';
+    if (fileKind === 'pdf') {
+        message =
+            'OpenAI 兼容通道当前不支持 PDF 作为 image_url。请改用 PNG/JPG，或切换到 GLM-OCR 通道。';
+    }
+
+    return {
+        ok: false,
+        error: makeServiceError('param', message, {
+            detectedKind: fileKind,
+            hint: '若你使用的是 macOS 剪贴板截图，可能是 TIFF/HEIC。',
+        }),
+    };
 }
 
 function validateGlmOcrInputFile(imageBase64, rawBytes) {
@@ -701,9 +729,18 @@ function parseCloudOcrResponse(resp) {
     }
 
     if (resp.error) {
+        var networkStatusCode = getResponseStatusCode(resp);
+        var networkErrorText = normalizeAnyToText(resp.error);
+        var networkMessage = '请求云端 OCR 服务失败。';
+        if (networkStatusCode > 0) {
+            networkMessage += ' 状态码: ' + networkStatusCode + '。';
+        }
+        if (networkErrorText) {
+            networkMessage += ' ' + networkErrorText;
+        }
         return {
             ok: false,
-            error: makeServiceError('network', '请求云端 OCR 服务失败。', {
+            error: makeServiceError('network', networkMessage, {
                 error: resp.error,
                 response: resp.response,
             }),
@@ -1424,8 +1461,16 @@ function buildCloudHeaders(apiKey) {
     };
 }
 
-function buildImageDataUrl(imageBase64) {
-    return 'data:image/png;base64,' + imageBase64;
+function buildImageDataUrl(imageBase64, fileKind) {
+    var mimeType = resolveImageMimeType(fileKind);
+    return 'data:' + mimeType + ';base64,' + imageBase64;
+}
+
+function resolveImageMimeType(fileKind) {
+    if (fileKind === 'jpg') {
+        return 'image/jpeg';
+    }
+    return 'image/png';
 }
 
 function detectBase64FileKind(imageBase64) {
@@ -1483,6 +1528,34 @@ function extractRemoteErrorMessage(data) {
         }
         if (typeof data.error.code === 'string' && data.error.code.trim()) {
             return data.error.code.trim();
+        }
+    }
+
+    return '';
+}
+
+function normalizeAnyToText(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    if (typeof value === 'string') {
+        return value.trim();
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+
+    if (isPlainObject(value)) {
+        if (typeof value.message === 'string' && value.message.trim()) {
+            return value.message.trim();
+        }
+        if (typeof value.localizedDescription === 'string' && value.localizedDescription.trim()) {
+            return value.localizedDescription.trim();
+        }
+        if (typeof value.code === 'string' && value.code.trim()) {
+            return value.code.trim();
         }
     }
 
