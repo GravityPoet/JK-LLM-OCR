@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.1",
+      "desc": "修复：新增智谱 GLM-OCR（layout_parsing）通道，解决调用 glm-ocr 时 HTTP 404；保留 OpenAI 兼容通道。",
+      "sha256": "e6c29b808715a53b108c8f108ff2ad1ef1ca9bfed94fda7a916d3b9f295c8f9f",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.1/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.6.0",
+      "timestamp": 1771351719004
+    },
+    {
       "version": "0.2.0",
       "desc": "新增：OCR 后端模式可切换本地/云端；支持 OpenAI 兼容多模态 OCR（含硅基流动 PaddleOCR-VL-1.5 配置）。",
       "sha256": "2f126acdd522896c89730a3f1fe3408303564f9626251bfec4b7320b9a1c19dd",

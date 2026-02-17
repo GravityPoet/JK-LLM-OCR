@@ -26,12 +26,12 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 `JK-LLM-OCR` 的定位是：**本地优先，云端可切换**。
 
 - 日常截图：走本地 PP-OCRv5，低延迟、低成本。
-- 困难样本：切换云端 OpenAI 兼容多模态接口（如硅基流动 `PaddlePaddle/PaddleOCR-VL-1.5`）。
+- 困难样本：切换云端通道（OpenAI 兼容 或 智谱 `glm-ocr` 专用接口）。
 
 ## ✨ 核心特性
 
 - `Local First`：默认本地 OCR，不依赖外部 API。
-- `Cloud Ready`：支持 OpenAI 兼容 OCR 服务商接入。
+- `Cloud Ready`：支持 OpenAI 兼容 OCR 与智谱 GLM-OCR 专用接口。
 - `双模式切换`：在 Bob 里通过 `OCR 后端模式` 一键切换本地/云端。
 - `云端可自定义`：Base URL、API Key、模型名、图像细节、OCR 指令都可配。
 - `VPS 方案完整`：支持把本地模型放 VPS，Mac 通过 SSH 隧道调用。
@@ -42,17 +42,26 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 | 模式 | 适合场景 | 优势 | 代价 |
 |---|---|---|---|
 | 本地 PP-OCRv5 | 日常截图、开发文档、常规中英文 | 快、稳定、免费、隐私好 | 极复杂图像精度可能不如云端 |
-| 云端 OpenAI 兼容 OCR | 复杂排版、难样本、需要更高识别质量 | 识别能力更强，可选更多模型 | 需要联网 + API 成本 |
+| 云端 OCR（OpenAI 兼容 / GLM 专用） | 复杂排版、难样本、需要更高识别质量 | 识别能力更强，可选更多模型 | 需要联网 + API 成本 |
 
 ## 📦 支持的云端方式
 
-当前插件通过 **OpenAI 兼容 Chat Completions 多模态格式** 对接云端 OCR。
+当前插件支持两种云端协议：
 
-硅基流动示例：
+1. `OpenAI 兼容`（如硅基流动）：`/chat/completions`
+2. `智谱 GLM-OCR`：`/api/paas/v4/layout_parsing`
+
+硅基流动示例（OpenAI 兼容）：
 
 - `云端 Base URL`: `https://api.siliconflow.cn/v1`
 - `云端模型名`: `PaddlePaddle/PaddleOCR-VL-1.5`
 - `云端图像细节`: `high`
+
+智谱示例（GLM 专用）：
+
+- `云端通道`: `智谱 GLM-OCR（layout_parsing）`
+- `GLM-OCR 接口地址`: `https://open.bigmodel.cn/api/paas/v4/layout_parsing`
+- `GLM-OCR 模型名`: `glm-ocr`
 
 详细配置见：[`docs/cloud-provider-ocr.md`](docs/cloud-provider-ocr.md)
 
@@ -77,13 +86,15 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 ### 云端模式（服务商 OCR）
 
 - `OCR 后端模式`：`云端 OpenAI 兼容 OCR`
-- 配置 `云端 Base URL` / `云端 API Key` / `云端模型名`
+- `云端通道` 可选：
+  - `OpenAI 兼容（硅基流动等）`
+  - `智谱 GLM-OCR（layout_parsing）`
 
-建议先用硅基流动示例参数跑通，再替换为你自己的服务商与模型。
+建议先按对应通道的官方示例跑通，再替换为你自己的服务商与模型。
 
 ## 💡 Prompt 进阶玩法
 
-`云端 OCR 指令` 支持自定义，你可以让结果更贴近业务输出：
+`云端 OCR 指令`（OpenAI 兼容通道）支持自定义，你可以让结果更贴近业务输出：
 
 - 代码提取：`请识别图片中的代码，仅输出代码，不要解释。`
 - 表格提取：`请将图片中的表格输出为 Markdown 表格。`
@@ -97,7 +108,10 @@ OCR 真实痛点不是“能不能识别”，而是“在不同场景下是否�
 
 ### Q2: 为什么插件校验出现 HTTP 404？
 
-通常是云端 `Base URL` 不是 OpenAI 兼容入口。优先改为 `https://api.siliconflow.cn/v1` 后再校验。
+通常是“通道和地址配错”：
+
+- OpenAI 兼容通道要填 `/v1` 或 `/chat/completions`
+- GLM-OCR 通道要填 `/layout_parsing`
 
 ### Q3: 会上传我的截图吗？
 
