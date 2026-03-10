@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.6",
+      "desc": "简化：移除百度同步 /ocr 与 GLM-OCR；界面收敛为本地/云端服务商/百度异步三模式；补充百度异步 relay 文档与脚本。",
+      "sha256": "d69c8b71a58ee56dc6528beabf63c2d39bab416a714077481c2b6e51329d73b7",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.6/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1773177447324
+    },
+    {
       "version": "0.2.3",
       "desc": "修复：OpenAI 兼容通道新增真实图片格式校验（PNG/JPG），并强化“请求云端 OCR 服务失败”报错信息。",
       "sha256": "db9b505e4264674c751f03b3416ec5254c24ff84b47cd7582baf3f3b91a41bd2",

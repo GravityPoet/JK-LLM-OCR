@@ -1,114 +1,88 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.2.3",
+  "version": "0.2.6",
   "category": "ocr",
   "name": "JK-LLM-OCR—GravityPoet开发",
-  "summary": "最强OCR插件（本地 + 云端服务商）",
+  "summary": "最强OCR插件（本地 + 云端服务商 + 百度 jobs）",
   "icon": "",
   "author": "JK-LLM-OCR Contributors",
   "homepage": "https://github.com/GravityPoet/JK-LLM-OCR",
   "appcast": "https://raw.githubusercontent.com/GravityPoet/JK-LLM-OCR/main/appcast.json",
-  "minBobVersion": "1.6.0",
+  "minBobVersion": "1.8.0",
   "options": [
     {
-      "identifier": "ocrBackendMode",
+      "identifier": "serviceMode",
       "type": "menu",
-      "title": "OCR 后端模式",
+      "title": "[模式] OCR 服务模式",
       "defaultValue": "local",
+      "isKeyOption": true,
       "menuValues": [
         {
-          "title": "本地 PP-OCRv5_server",
-          "value": "local"
+          "title": "本地服务",
+          "value": "local",
+          "defaultPluginName": "JK-LLM-OCR 本地—GravityPoet开发"
         },
         {
-          "title": "云端 OpenAI 兼容 OCR",
-          "value": "cloud"
+          "title": "云端服务商 OCR（OpenAI兼容）",
+          "value": "providerCloud",
+          "defaultPluginName": "JK-LLM-OCR 云端—GravityPoet开发"
+        },
+        {
+          "title": "百度异步文档解析 jobs",
+          "value": "cloudAsync",
+          "defaultPluginName": "JK-LLM-OCR 百度异步—GravityPoet开发"
         }
       ],
-      "desc": "默认本地模式。切到云端后，将调用 OpenAI 兼容多模态接口（如硅基流动）。"
+      "desc": "已简化为 3 种模式：本地、本地外部服务商(OpenAI兼容)、百度异步 jobs。只填写当前模式对应的那一组字段。"
     },
     {
-      "identifier": "serverUrl",
+      "identifier": "localServerUrl",
       "type": "text",
-      "title": "OCR 服务地址",
+      "title": "[本地] OCR 服务地址",
       "defaultValue": "http://127.0.0.1:50000/ocr",
-      "desc": "仅本地模式生效。本地 PP-OCRv5_server 的 HTTP 地址，必须以 http:// 或 https:// 开头。"
-    },
-    {
-      "identifier": "cloudBaseUrl",
-      "type": "text",
-      "title": "云端 Base URL",
-      "defaultValue": "https://api.siliconflow.cn/v1",
-      "desc": "仅云端模式 + OpenAI 兼容通道生效。支持填完整 /chat/completions，插件会自动兼容处理。",
+      "desc": "仅本地模式使用。填写你自己的 HTTP /ocr 地址，例如本机或 VPS 隧道地址。",
       "textConfig": {
         "type": "visible",
-        "placeholderText": "https://api.siliconflow.cn/v1"
+        "placeholderText": "http://127.0.0.1:50000/ocr"
       }
     },
     {
       "identifier": "cloudApiKey",
       "type": "text",
-      "title": "云端 API Key",
-      "desc": "仅云端模式生效。示例：硅基流动 API Key。",
+      "title": "[云端服务商] API Key",
+      "defaultValue": "",
+      "desc": "仅“云端服务商 OCR”模式使用。",
       "textConfig": {
         "type": "secure",
         "placeholderText": "sk-xxxxxxxxxxxxxxxxxxxxxxxx"
       }
     },
     {
-      "identifier": "cloudProvider",
-      "type": "menu",
-      "title": "云端通道",
-      "defaultValue": "openai-compatible",
-      "menuValues": [
-        {
-          "title": "OpenAI 兼容（硅基流动等）",
-          "value": "openai-compatible"
-        },
-        {
-          "title": "智谱 GLM-OCR（layout_parsing）",
-          "value": "zhipu-glm-ocr"
-        }
-      ],
-      "desc": "仅云端模式生效。GLM-OCR 走智谱专用接口，不是 /chat/completions。"
+      "identifier": "cloudBaseUrl",
+      "type": "text",
+      "title": "[云端服务商] Base URL",
+      "defaultValue": "https://api.siliconflow.cn/v1",
+      "desc": "仅云端服务商 OCR 模式使用。支持填根地址或完整 /chat/completions。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "https://api.siliconflow.cn/v1"
+      }
     },
     {
       "identifier": "cloudModel",
       "type": "text",
-      "title": "云端模型名",
+      "title": "[云端服务商] 模型名",
       "defaultValue": "PaddlePaddle/PaddleOCR-VL-1.5",
-      "desc": "仅 OpenAI 兼容通道生效。可自定义任何支持图像输入的模型名。",
+      "desc": "仅云端服务商 OCR 模式使用。可填写任意支持图像输入的 OpenAI 兼容模型名。",
       "textConfig": {
         "type": "visible",
         "placeholderText": "PaddlePaddle/PaddleOCR-VL-1.5"
       }
     },
     {
-      "identifier": "glmOcrEndpoint",
-      "type": "text",
-      "title": "GLM-OCR 接口地址",
-      "defaultValue": "https://open.bigmodel.cn/api/paas/v4/layout_parsing",
-      "desc": "仅智谱 GLM-OCR 通道生效。默认官方 layout_parsing 接口。",
-      "textConfig": {
-        "type": "visible",
-        "placeholderText": "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
-      }
-    },
-    {
-      "identifier": "glmOcrModel",
-      "type": "text",
-      "title": "GLM-OCR 模型名",
-      "defaultValue": "glm-ocr",
-      "desc": "仅智谱 GLM-OCR 通道生效。当前官方值为 glm-ocr。",
-      "textConfig": {
-        "type": "visible",
-        "placeholderText": "glm-ocr"
-      }
-    },
-    {
       "identifier": "cloudImageDetail",
       "type": "menu",
-      "title": "云端图像细节",
+      "title": "[云端服务商] 图像细节",
       "defaultValue": "high",
       "menuValues": [
         {
@@ -124,14 +98,14 @@
           "value": "low"
         }
       ],
-      "desc": "仅 OpenAI 兼容通道生效。映射 image_url.detail（high/auto/low）。"
+      "desc": "仅云端服务商 OCR 模式使用。映射 image_url.detail。"
     },
     {
       "identifier": "cloudPrompt",
       "type": "text",
-      "title": "云端 OCR 指令",
+      "title": "[云端服务商] OCR 指令",
       "defaultValue": "请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。",
-      "desc": "仅 OpenAI 兼容通道生效。用于约束模型输出格式。",
+      "desc": "仅云端服务商 OCR 模式使用。用于约束模型输出格式。",
       "textConfig": {
         "type": "visible",
         "height": "64",
@@ -139,24 +113,84 @@
       }
     },
     {
+      "identifier": "accessToken",
+      "type": "text",
+      "title": "[百度异步] Access Token",
+      "defaultValue": "",
+      "desc": "仅百度异步 jobs 模式使用。发送 Authorization: bearer <访问令牌>。",
+      "textConfig": {
+        "type": "secure",
+        "placeholderText": "填写 AI Studio Access Token"
+      }
+    },
+    {
+      "identifier": "baiduServerUrl",
+      "type": "text",
+      "title": "[百度异步] 服务地址",
+      "defaultValue": "https://paddleocr.aistudio-app.com/api/v2/ocr",
+      "desc": "仅百度异步 jobs 模式使用。填 /jobs 或其根地址，插件会自动标准化。",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "https://paddleocr.aistudio-app.com/api/v2/ocr"
+      }
+    },
+    {
+      "identifier": "asyncResultRelayUrl",
+      "type": "text",
+      "title": "[百度异步] Relay 地址(可选)",
+      "defaultValue": "http://127.0.0.1:50123/fetch-jsonl",
+      "desc": "仅百度异步 jobs 模式使用。直连 jsonUrl 若报 403 / 签名异常，会自动回退到该地址；留空可禁用。"
+    },
+    {
+      "identifier": "cloudModelPreset",
+      "type": "menu",
+      "title": "[百度异步] 模型",
+      "defaultValue": "auto",
+      "menuValues": [
+        {
+          "title": "自动检测（推荐）",
+          "value": "auto"
+        },
+        {
+          "title": "PaddleOCR-VL-1.5",
+          "value": "PaddleOCR-VL-1.5"
+        },
+        {
+          "title": "PaddleOCR-VL",
+          "value": "PaddleOCR-VL"
+        },
+        {
+          "title": "自定义模型 ID",
+          "value": "custom"
+        }
+      ],
+      "desc": "仅百度异步 jobs 模式使用。Bob 没有动态按钮选项，因此点击插件自带“验证”或实际 OCR 时，会在“自动检测”模式下自动探测当前 token 可用模型。若选“自定义模型 ID”，则读取下面的输入框。"
+    },
+    {
+      "identifier": "cloudCustomModelName",
+      "type": "text",
+      "title": "[百度异步] 自定义模型 ID",
+      "defaultValue": "",
+      "desc": "仅当上面的“[百度异步] 模型”选为“自定义模型 ID”时生效。"
+    },
+    {
       "identifier": "requestTimeoutSec",
       "type": "text",
-      "title": "请求超时(秒)",
-      "defaultValue": "30",
-      "desc": "单次 OCR 请求超时时间，范围 5-180 秒（本地/云端通用）。"
+      "title": "[通用] 请求超时(秒)",
+      "defaultValue": "60",
+      "desc": "本地 / 云端服务商模式为单次请求超时；百度异步 jobs 模式为提交+轮询总超时，范围 5-180 秒。"
     },
     {
       "identifier": "textRecScoreThresh",
       "type": "text",
-      "title": "文本置信度阈值",
+      "title": "[本地] 文本置信度阈值",
       "defaultValue": "0.0",
-      "desc": "仅本地模式生效。传给 PP-OCRv5 的 textRecScoreThresh，范围 0.0-1.0。"
+      "desc": "仅本地模式使用。传给 PP-OCRv5 的 textRecScoreThresh，范围 0.0-1.0。"
     },
     {
       "identifier": "useDocOrientationClassify",
       "type": "menu",
-      "title": "启用文档方向分类",
-      "desc": "仅本地模式生效。",
+      "title": "[本地] 文档方向分类",
       "defaultValue": "false",
       "menuValues": [
         {
@@ -167,13 +201,13 @@
           "title": "开启",
           "value": "true"
         }
-      ]
+      ],
+      "desc": "仅本地模式使用。"
     },
     {
       "identifier": "useDocUnwarping",
       "type": "menu",
-      "title": "启用文档矫正",
-      "desc": "仅本地模式生效。",
+      "title": "[本地] 文档矫正",
       "defaultValue": "false",
       "menuValues": [
         {
@@ -184,13 +218,13 @@
           "title": "开启",
           "value": "true"
         }
-      ]
+      ],
+      "desc": "仅本地模式使用。"
     },
     {
       "identifier": "useTextlineOrientation",
       "type": "menu",
-      "title": "启用文本行方向分类",
-      "desc": "仅本地模式生效。",
+      "title": "[本地] 文本行方向分类",
       "defaultValue": "false",
       "menuValues": [
         {
@@ -201,7 +235,25 @@
           "title": "开启",
           "value": "true"
         }
-      ]
+      ],
+      "desc": "仅本地模式使用。"
+    },
+    {
+      "identifier": "useChartRecognition",
+      "type": "menu",
+      "title": "[百度异步] 图表识别",
+      "defaultValue": "false",
+      "menuValues": [
+        {
+          "title": "关闭",
+          "value": "false"
+        },
+        {
+          "title": "开启",
+          "value": "true"
+        }
+      ],
+      "desc": "仅百度异步 jobs 模式使用。"
     }
   ]
 }

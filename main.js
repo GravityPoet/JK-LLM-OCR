@@ -16,31 +16,36 @@ var ERROR_TYPES = {
     notFound: true,
 };
 
-var OCR_BACKEND_MODES = {
+var SERVICE_MODE_SET = {
     local: true,
-    cloud: true,
+    providerCloud: true,
+    cloudAsync: true,
 };
 
-var DEFAULT_OCR_BACKEND_MODE = 'local';
+var CLOUD_ASYNC_MODEL_SET = {
+    auto: true,
+    'PaddleOCR-VL-1.5': true,
+    'PaddleOCR-VL': true,
+    custom: true,
+};
+
+var CLOUD_ASYNC_MODEL_CANDIDATES = ['PaddleOCR-VL-1.5', 'PaddleOCR-VL'];
+
 var DEFAULT_SERVER_URL = 'http://127.0.0.1:50000/ocr';
+var DEFAULT_BAIDU_SERVER_URL = 'https://paddleocr.aistudio-app.com/api/v2/ocr';
+var DEFAULT_SERVICE_MODE = 'local';
+var DEFAULT_CLOUD_MODEL_NAME = 'auto';
 var DEFAULT_CLOUD_BASE_URL = 'https://api.siliconflow.cn/v1';
 var DEFAULT_CLOUD_MODEL = 'PaddlePaddle/PaddleOCR-VL-1.5';
 var DEFAULT_CLOUD_PROMPT = '请识别图片中的全部文字，仅返回纯文本结果，保留原有换行，不要解释。';
-var DEFAULT_CLOUD_PROVIDER = 'openai-compatible';
-var CLOUD_PROVIDERS = {
-    'openai-compatible': true,
-    'zhipu-glm-ocr': true,
-};
-var DEFAULT_GLM_OCR_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/layout_parsing';
-var DEFAULT_GLM_OCR_MODEL = 'glm-ocr';
 var DEFAULT_CLOUD_IMAGE_DETAIL = 'high';
 var CLOUD_IMAGE_DETAILS = {
     high: true,
     auto: true,
     low: true,
 };
-
-var DEFAULT_REQUEST_TIMEOUT_SEC = 30;
+var DEFAULT_ASYNC_RESULT_RELAY_URL = 'http://127.0.0.1:50123/fetch-jsonl';
+var DEFAULT_REQUEST_TIMEOUT_SEC = 60;
 var MIN_REQUEST_TIMEOUT_SEC = 5;
 var MAX_REQUEST_TIMEOUT_SEC = 180;
 var MIN_PLUGIN_TIMEOUT_SEC = 30;
@@ -48,10 +53,12 @@ var MAX_PLUGIN_TIMEOUT_SEC = 300;
 var DEFAULT_TEXT_REC_SCORE_THRESH = 0.0;
 
 var MAX_IMAGE_BYTES = 30 * 1024 * 1024;
-var GLM_OCR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
-var GLM_OCR_PDF_MAX_BYTES = 50 * 1024 * 1024;
 var MAX_TEXT_ITEMS = 500;
 var MAX_TEXT_LENGTH = 2000;
+var ASYNC_POLL_INTERVAL_SEC = 3;
+
+var VALIDATION_IMAGE_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
 
 function supportLanguages() {
     return SUPPORTED_LANGUAGES.slice();
@@ -76,67 +83,40 @@ function pluginValidate(completion) {
         return;
     }
 
-    if (config.backendMode === 'cloud') {
+    if (config.serviceMode === 'providerCloud') {
         validateCloudBackend(config, done);
         return;
     }
 
-    validateLocalBackend(config, done);
-}
-
-function validateLocalBackend(config, done) {
-    $http.request({
-        method: 'GET',
-        url: buildLocalHealthUrl(config.serverUrl),
-        timeout: clamp(config.requestTimeoutSec, 5, 10),
-        handler: function (resp) {
-            var healthResult = parseLocalHealthResponse(resp);
-            if (healthResult.ok) {
-                done({ result: true });
-                return;
-            }
-
-            done({ result: false, error: healthResult.error });
-        },
-    });
-}
-
-function validateCloudBackend(config, done) {
-    if (config.cloudProvider === 'zhipu-glm-ocr') {
-        validateGlmOcrBackend(config, done);
+    if (config.serviceMode === 'cloudAsync') {
+        validateAsyncJob(config, done);
         return;
     }
 
-    $http.request({
-        method: 'GET',
-        url: buildCloudModelsUrl(config.cloudBaseUrl),
-        header: buildCloudHeaders(config.cloudApiKey),
-        timeout: clamp(config.requestTimeoutSec, 5, 15),
-        handler: function (resp) {
-            var parsed = parseCloudValidationResponse(resp);
-            if (parsed.ok) {
-                done({ result: true });
-                return;
-            }
-            done({ result: false, error: parsed.error });
-        },
-    });
-}
+    var body = {
+        file: VALIDATION_IMAGE_BASE64,
+        fileType: 1,
+        visualize: false,
+        textRecScoreThresh: config.textRecScoreThresh,
+        useDocOrientationClassify: config.useDocOrientationClassify,
+        useDocUnwarping: config.useDocUnwarping,
+        useTextlineOrientation: config.useTextlineOrientation,
+    };
 
-function validateGlmOcrBackend(config, done) {
     $http.request({
         method: 'POST',
-        url: config.glmOcrEndpoint,
-        header: buildCloudHeaders(config.cloudApiKey),
-        body: {},
-        timeout: clamp(config.requestTimeoutSec, 5, 15),
+        url: config.serverUrl,
+        header: buildRequestHeaders(config),
+        body: body,
+        timeout: clamp(config.requestTimeoutSec, 5, 10),
         handler: function (resp) {
-            var parsed = parseGlmOcrValidationResponse(resp);
-            if (parsed.ok) {
+            var validateResult = parseServerResponse(resp, config);
+            if (validateResult.ok) {
                 done({ result: true });
                 return;
             }
-            done({ result: false, error: parsed.error });
+
+            done({ result: false, error: validateResult.error });
         },
     });
 }
@@ -162,6 +142,11 @@ function ocr(query, completion) {
         return;
     }
 
+    if (config.serviceMode === 'cloudAsync') {
+        ocrWithAsyncJob(query, config, done);
+        return;
+    }
+
     var imageBase64 = safeToBase64(query.image);
     if (!imageBase64) {
         done({
@@ -170,29 +155,17 @@ function ocr(query, completion) {
         return;
     }
 
-    if (config.backendMode === 'cloud') {
-        if (config.cloudProvider === 'zhipu-glm-ocr') {
-            var glmFileValidation = validateGlmOcrInputFile(imageBase64, query.image.length);
-            if (!glmFileValidation.ok) {
-                done({ error: glmFileValidation.error });
-                return;
-            }
-        } else {
-            var openAiFileValidation = validateOpenAiCompatibleInputFile(imageBase64);
-            if (!openAiFileValidation.ok) {
-                done({ error: openAiFileValidation.error });
-                return;
-            }
+    if (config.serviceMode === 'providerCloud') {
+        var openAiFileValidation = validateOpenAiCompatibleInputFile(imageBase64);
+        if (!openAiFileValidation.ok) {
+            done({ error: openAiFileValidation.error });
+            return;
         }
 
         runCloudOcr(query, config, imageBase64, done);
         return;
     }
 
-    runLocalOcr(query, config, imageBase64, done);
-}
-
-function runLocalOcr(query, config, imageBase64, done) {
     var requestBody = {
         file: imageBase64,
         fileType: 1,
@@ -206,13 +179,11 @@ function runLocalOcr(query, config, imageBase64, done) {
     $http.request({
         method: 'POST',
         url: config.serverUrl,
-        header: {
-            'Content-Type': 'application/json',
-        },
+        header: buildRequestHeaders(config),
         body: requestBody,
         timeout: config.requestTimeoutSec,
         handler: function (resp) {
-            var parsed = parseLocalServerResponse(resp);
+            var parsed = parseServerResponse(resp, config);
             if (!parsed.ok) {
                 done({ error: parsed.error });
                 return;
@@ -232,7 +203,6 @@ function runLocalOcr(query, config, imageBase64, done) {
             var result = {
                 texts: texts,
                 raw: {
-                    backendMode: 'local',
                     logId: parsed.payload.logId,
                     result: parsed.payload.result,
                 },
@@ -249,11 +219,6 @@ function runLocalOcr(query, config, imageBase64, done) {
 }
 
 function runCloudOcr(query, config, imageBase64, done) {
-    if (config.cloudProvider === 'zhipu-glm-ocr') {
-        runGlmOcr(query, config, imageBase64, done);
-        return;
-    }
-
     var cloudUrl = buildCloudChatCompletionsUrl(config.cloudBaseUrl);
     var imageUrl = buildImageDataUrl(imageBase64, detectBase64FileKind(imageBase64));
 
@@ -309,62 +274,9 @@ function runCloudOcr(query, config, imageBase64, done) {
             var result = {
                 texts: texts,
                 raw: {
-                    backendMode: 'cloud',
-                    cloudProvider: 'openai-compatible',
+                    backendMode: 'providerCloud',
                     cloudBaseUrl: config.cloudBaseUrl,
                     cloudModel: config.cloudModel,
-                    response: parsed.payload.data,
-                },
-            };
-
-            var resultFrom = chooseResultLanguage(query);
-            if (resultFrom) {
-                result.from = resultFrom;
-            }
-
-            done({ result: result });
-        },
-    });
-}
-
-function runGlmOcr(query, config, imageBase64, done) {
-    var requestBody = {
-        model: config.glmOcrModel,
-        file: imageBase64,
-    };
-
-    $http.request({
-        method: 'POST',
-        url: config.glmOcrEndpoint,
-        header: buildCloudHeaders(config.cloudApiKey),
-        body: requestBody,
-        timeout: config.requestTimeoutSec,
-        handler: function (resp) {
-            var parsed = parseGlmOcrResponse(resp);
-            if (!parsed.ok) {
-                done({ error: parsed.error });
-                return;
-            }
-
-            var texts = splitCloudTextToTexts(parsed.payload.text);
-            if (texts.length === 0) {
-                done({
-                    error: makeServiceError('notFound', 'GLM-OCR 未返回可用文本。', {
-                        glmOcrEndpoint: config.glmOcrEndpoint,
-                        glmOcrModel: config.glmOcrModel,
-                        response: parsed.payload.data,
-                    }),
-                });
-                return;
-            }
-
-            var result = {
-                texts: texts,
-                raw: {
-                    backendMode: 'cloud',
-                    cloudProvider: 'zhipu-glm-ocr',
-                    glmOcrEndpoint: config.glmOcrEndpoint,
-                    glmOcrModel: config.glmOcrModel,
                     response: parsed.payload.data,
                 },
             };
@@ -427,10 +339,9 @@ function validateOpenAiCompatibleInputFile(imageBase64) {
     }
 
     var message =
-        'OpenAI 兼容通道当前仅支持 PNG/JPG 图片输入。请改用 PNG/JPG 截图，或切换到 GLM-OCR 通道。';
+        '云端服务商 OCR 当前仅支持 PNG/JPG 图片输入。请改用 PNG/JPG 截图。';
     if (fileKind === 'pdf') {
-        message =
-            'OpenAI 兼容通道当前不支持 PDF 作为 image_url。请改用 PNG/JPG，或切换到 GLM-OCR 通道。';
+        message = '云端服务商 OCR 当前不支持 PDF 作为 image_url。请改用 PNG/JPG。';
     }
 
     return {
@@ -442,59 +353,8 @@ function validateOpenAiCompatibleInputFile(imageBase64) {
     };
 }
 
-function validateGlmOcrInputFile(imageBase64, rawBytes) {
-    var fileKind = detectBase64FileKind(imageBase64);
-    if (fileKind !== 'png' && fileKind !== 'jpg' && fileKind !== 'pdf') {
-        return {
-            ok: false,
-            error: makeServiceError(
-                'param',
-                'GLM-OCR 仅支持 PNG/JPG/PDF。当前图片格式疑似不支持（常见为 TIFF/HEIC）。',
-                {
-                    detectedKind: fileKind,
-                    rawBytes: rawBytes,
-                    hint: '建议改用 PNG/JPG 截图，或切换到 OpenAI 兼容通道。',
-                }
-            ),
-        };
-    }
-
-    if (typeof rawBytes === 'number' && isFinite(rawBytes) && rawBytes > 0) {
-        if ((fileKind === 'png' || fileKind === 'jpg') && rawBytes > GLM_OCR_IMAGE_MAX_BYTES) {
-            return {
-                ok: false,
-                error: makeServiceError(
-                    'param',
-                    'GLM-OCR 图片大小超限（图片 ≤10MB）。请缩小截图范围后重试。',
-                    {
-                        detectedKind: fileKind,
-                        rawBytes: rawBytes,
-                        maxBytes: GLM_OCR_IMAGE_MAX_BYTES,
-                    }
-                ),
-            };
-        }
-
-        if (fileKind === 'pdf' && rawBytes > GLM_OCR_PDF_MAX_BYTES) {
-            return {
-                ok: false,
-                error: makeServiceError(
-                    'param',
-                    'GLM-OCR PDF 大小超限（PDF ≤50MB）。请压缩后重试。',
-                    {
-                        detectedKind: fileKind,
-                        rawBytes: rawBytes,
-                        maxBytes: GLM_OCR_PDF_MAX_BYTES,
-                    }
-                ),
-            };
-        }
-    }
-
-    return { ok: true };
-}
-
 function buildRuntimeConfig() {
+    var serviceMode = parseMenuChoice('serviceMode', DEFAULT_SERVICE_MODE, SERVICE_MODE_SET);
     var requestTimeoutSec = parseIntegerInRange(
         getOptionString('requestTimeoutSec', String(DEFAULT_REQUEST_TIMEOUT_SEC)),
         DEFAULT_REQUEST_TIMEOUT_SEC,
@@ -502,24 +362,32 @@ function buildRuntimeConfig() {
         MAX_REQUEST_TIMEOUT_SEC
     );
 
-    var backendMode = parseBackendMode(getOptionString('ocrBackendMode', DEFAULT_OCR_BACKEND_MODE));
-    if (backendMode === 'cloud') {
-        return buildCloudRuntimeConfig(requestTimeoutSec);
+    if (serviceMode === 'providerCloud') {
+        return buildProviderCloudRuntimeConfig(serviceMode, requestTimeoutSec);
     }
 
-    return buildLocalRuntimeConfig(requestTimeoutSec);
-}
-
-function buildLocalRuntimeConfig(requestTimeoutSec) {
-    var serverUrlRaw = getOptionString('serverUrl', DEFAULT_SERVER_URL);
-    var serverUrl = normalizeLocalServerUrl(serverUrlRaw);
+    var serverUrlRaw = resolveServerUrlOption(serviceMode);
+    var serverUrl = normalizeServerUrl(serverUrlRaw, serviceMode);
     if (!serverUrl) {
         return {
             ok: false,
             error: makeServiceError(
                 'param',
-                'OCR 服务地址格式不正确，请填写 http:// 或 https:// 开头的地址。',
+                buildServerUrlErrorMessage(serviceMode),
                 { serverUrl: serverUrlRaw }
+            ),
+        };
+    }
+
+    var accessToken = getOptionString('accessToken', '');
+    if (serviceMode === 'cloudAsync' && !accessToken) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'secretKey',
+                '百度异步 jobs 模式必须填写访问令牌。',
+                null,
+                'https://ai.baidu.com/ai-doc/AISTUDIO/slmkadt9z'
             ),
         };
     }
@@ -531,62 +399,65 @@ function buildLocalRuntimeConfig(requestTimeoutSec) {
         1
     );
 
+    var useDocOrientationClassify = parseMenuBoolean('useDocOrientationClassify', false);
+    var useDocUnwarping = parseMenuBoolean('useDocUnwarping', false);
+    var useTextlineOrientation = parseMenuBoolean('useTextlineOrientation', false);
+    var useChartRecognition = parseMenuBoolean('useChartRecognition', false);
+    var cloudModelPreset = parseMenuChoice('cloudModelPreset', DEFAULT_CLOUD_MODEL_NAME, CLOUD_ASYNC_MODEL_SET);
+    var cloudCustomModelName = getOptionString('cloudCustomModelName', '');
+    var asyncResultRelayUrlRaw = getOptionStringAllowEmpty(
+        'asyncResultRelayUrl',
+        DEFAULT_ASYNC_RESULT_RELAY_URL
+    );
+    var asyncResultRelayUrl = '';
+
+    if (serviceMode === 'cloudAsync' && cloudModelPreset === 'custom' && !cloudCustomModelName) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'param',
+                '你已选择“自定义模型 ID”，但未填写自定义模型名。'
+            ),
+        };
+    }
+
+    if (serviceMode === 'cloudAsync' && asyncResultRelayUrlRaw) {
+        asyncResultRelayUrl = normalizeRelayUrl(asyncResultRelayUrlRaw);
+        if (!asyncResultRelayUrl) {
+            return {
+                ok: false,
+                error: makeServiceError(
+                    'param',
+                    '异步结果 Relay 地址格式不正确，请填写 http:// 或 https:// 开头的地址，或留空禁用。',
+                    { asyncResultRelayUrl: asyncResultRelayUrlRaw }
+                ),
+            };
+        }
+    }
+
     return {
         ok: true,
-        backendMode: 'local',
+        serviceMode: serviceMode,
         serverUrl: serverUrl,
+        accessToken: accessToken,
+        cloudModelPreset: cloudModelPreset,
+        cloudCustomModelName: cloudCustomModelName,
+        asyncResultRelayUrl: asyncResultRelayUrl,
         requestTimeoutSec: requestTimeoutSec,
         textRecScoreThresh: textRecScoreThresh,
-        useDocOrientationClassify: parseMenuBoolean('useDocOrientationClassify', false),
-        useDocUnwarping: parseMenuBoolean('useDocUnwarping', false),
-        useTextlineOrientation: parseMenuBoolean('useTextlineOrientation', false),
+        useDocOrientationClassify: useDocOrientationClassify,
+        useDocUnwarping: useDocUnwarping,
+        useTextlineOrientation: useTextlineOrientation,
+        useChartRecognition: useChartRecognition,
     };
 }
 
-function buildCloudRuntimeConfig(requestTimeoutSec) {
+function buildProviderCloudRuntimeConfig(serviceMode, requestTimeoutSec) {
     var cloudApiKey = normalizeCloudApiKey(getOptionString('cloudApiKey', ''));
     if (!cloudApiKey) {
         return {
             ok: false,
-            error: makeServiceError('secretKey', '云端 API Key 不能为空。'),
-        };
-    }
-
-    var cloudProvider = parseCloudProvider(
-        getOptionString('cloudProvider', DEFAULT_CLOUD_PROVIDER)
-    );
-
-    if (cloudProvider === 'zhipu-glm-ocr') {
-        var glmOcrEndpointRaw = getOptionString('glmOcrEndpoint', DEFAULT_GLM_OCR_ENDPOINT);
-        var glmOcrEndpoint = normalizeHttpUrl(glmOcrEndpointRaw);
-        if (!glmOcrEndpoint) {
-            return {
-                ok: false,
-                error: makeServiceError('param', 'GLM-OCR 接口地址格式不正确。', {
-                    glmOcrEndpoint: glmOcrEndpointRaw,
-                }),
-            };
-        }
-
-        var glmOcrModelRaw = getOptionString('glmOcrModel', DEFAULT_GLM_OCR_MODEL);
-        var glmOcrModel = normalizeCloudModel(glmOcrModelRaw);
-        if (!glmOcrModel) {
-            return {
-                ok: false,
-                error: makeServiceError('param', 'GLM-OCR 模型名格式不正确。', {
-                    glmOcrModel: glmOcrModelRaw,
-                }),
-            };
-        }
-
-        return {
-            ok: true,
-            backendMode: 'cloud',
-            cloudProvider: cloudProvider,
-            requestTimeoutSec: requestTimeoutSec,
-            cloudApiKey: cloudApiKey,
-            glmOcrEndpoint: glmOcrEndpoint,
-            glmOcrModel: glmOcrModel,
+            error: makeServiceError('secretKey', '服务商云端 API Key 不能为空。'),
         };
     }
 
@@ -597,7 +468,7 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
             ok: false,
             error: makeServiceError(
                 'param',
-                '云端 Base URL 格式不正确，请填写 http:// 或 https:// 开头的地址。',
+                '服务商 Base URL 格式不正确，请填写 http:// 或 https:// 开头的地址。',
                 { cloudBaseUrl: cloudBaseUrlRaw }
             ),
         };
@@ -608,7 +479,7 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
     if (!cloudModel) {
         return {
             ok: false,
-            error: makeServiceError('param', '云端模型名格式不正确。', {
+            error: makeServiceError('param', '服务商模型名格式不正确。', {
                 cloudModel: cloudModelRaw,
             }),
         };
@@ -616,8 +487,7 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
 
     return {
         ok: true,
-        backendMode: 'cloud',
-        cloudProvider: cloudProvider,
+        serviceMode: serviceMode,
         requestTimeoutSec: requestTimeoutSec,
         cloudBaseUrl: cloudBaseUrl,
         cloudApiKey: cloudApiKey,
@@ -630,18 +500,1237 @@ function buildCloudRuntimeConfig(requestTimeoutSec) {
     };
 }
 
+function buildRequestHeaders(config) {
+    var headers = {};
+
+    if (config && config.serviceMode === 'cloudAsync') {
+        headers.Authorization = 'bearer ' + config.accessToken;
+        return headers;
+    }
+
+    headers['Content-Type'] = 'application/json';
+
+    return headers;
+}
+
+function validateCloudBackend(config, done) {
+    $http.request({
+        method: 'GET',
+        url: buildCloudModelsUrl(config.cloudBaseUrl),
+        header: buildCloudHeaders(config.cloudApiKey),
+        timeout: clamp(config.requestTimeoutSec, 5, 15),
+        handler: function (resp) {
+            var parsed = parseCloudValidationResponse(resp);
+            if (parsed.ok) {
+                done({ result: true });
+                return;
+            }
+            done({ result: false, error: parsed.error });
+        },
+    });
+}
+
+function validateAsyncJob(config, done) {
+    var validationData = validationImageData();
+    if (!validationData) {
+        done({
+            result: false,
+            error: makeServiceError('param', '插件内置校验图片生成失败。'),
+        });
+        return;
+    }
+
+    submitAsyncJob(validationData, config, function (submitted) {
+        if (!submitted.ok) {
+            done({ result: false, error: submitted.error });
+            return;
+        }
+
+        done({ result: true });
+    });
+}
+
+function ocrWithAsyncJob(query, config, done) {
+    submitAsyncJob(query.image, config, function (submitted) {
+        if (!submitted.ok) {
+            done({ error: submitted.error });
+            return;
+        }
+
+        pollAsyncJob(submitted.jobId, config, new Date().getTime(), function (polled) {
+            if (!polled.ok) {
+                done({ error: polled.error });
+                return;
+            }
+
+            var result = {
+                texts: polled.texts,
+                raw: {
+                    jobId: submitted.jobId,
+                    selectedModel: submitted.model,
+                    jsonUrl: polled.jsonUrl,
+                    pageCount: polled.pageCount,
+                },
+            };
+
+            var resultFrom = chooseResultLanguage(query);
+            if (resultFrom) {
+                result.from = resultFrom;
+            }
+
+            done({ result: result });
+        });
+    });
+}
+
+function submitAsyncJob(fileData, config, done) {
+    var fileMeta = detectUploadFileMeta(fileData);
+    if (!fileMeta) {
+        done({
+            ok: false,
+            error: makeServiceError('param', '当前图片格式无法用于百度异步文档解析 jobs。仅支持 PNG/JPG/PDF。'),
+        });
+        return;
+    }
+
+    submitAsyncJobWithModels(fileData, fileMeta, config, buildCloudModelsToTry(config), 0, done);
+}
+
+function submitAsyncJobWithModels(fileData, fileMeta, config, modelsToTry, index, done) {
+    var model = modelsToTry[index];
+    if (!model) {
+        done({
+            ok: false,
+            error: makeServiceError('api', '自动检测失败：当前 token 下未探测到可用云端模型。', {
+                triedModels: modelsToTry.slice(),
+            }),
+        });
+        return;
+    }
+
+    var optionalPayload = JSON.stringify(buildAsyncOptionalPayload(config));
+    var multipart = buildMultipartBody(model, optionalPayload, fileData, fileMeta);
+    if (!multipart) {
+        done({
+            ok: false,
+            error: makeServiceError('param', '构造 multipart 请求体失败。'),
+        });
+        return;
+    }
+
+    $http.request({
+        method: 'POST',
+        url: config.serverUrl,
+        header: buildAsyncMultipartHeaders(config, multipart.contentType),
+        body: multipart.bodyData,
+        timeout: clamp(config.requestTimeoutSec, MIN_REQUEST_TIMEOUT_SEC, MAX_REQUEST_TIMEOUT_SEC),
+        handler: function (resp) {
+            var created = parseAsyncJobCreateResponse(resp, config);
+            if (!created.ok && shouldRetryWithNextModel(config, created.error, modelsToTry, index)) {
+                submitAsyncJobWithModels(fileData, fileMeta, config, modelsToTry, index + 1, done);
+                return;
+            }
+
+            if (!created.ok) {
+                done(created);
+                return;
+            }
+
+            created.model = model;
+            done(created);
+        },
+    });
+}
+
+function buildAsyncMultipartHeaders(config, contentType) {
+    var headers = {
+        Authorization: 'bearer ' + config.accessToken,
+        'Content-Type': contentType,
+    };
+    return headers;
+}
+
+function buildMultipartBody(model, optionalPayload, fileData, fileMeta) {
+    if (typeof model !== 'string' || !model) {
+        return null;
+    }
+    if (typeof optionalPayload !== 'string') {
+        return null;
+    }
+    if (!$data.isData(fileData)) {
+        return null;
+    }
+    if (!fileMeta || typeof fileMeta.filename !== 'string' || typeof fileMeta.contentType !== 'string') {
+        return null;
+    }
+
+    var boundary = '----BobPluginBoundary' + String(new Date().getTime());
+    var CRLF = '\r\n';
+    var body = $data.fromUTF8('');
+    if (!$data.isData(body)) {
+        return null;
+    }
+
+    // model field
+    body.appendData(
+        $data.fromUTF8(
+            '--' + boundary + CRLF +
+            'Content-Disposition: form-data; name="model"' + CRLF + CRLF +
+            model + CRLF
+        )
+    );
+
+    // optionalPayload field
+    body.appendData(
+        $data.fromUTF8(
+            '--' + boundary + CRLF +
+            'Content-Disposition: form-data; name="optionalPayload"' + CRLF + CRLF +
+            optionalPayload + CRLF
+        )
+    );
+
+    // file field header
+    body.appendData(
+        $data.fromUTF8(
+            '--' + boundary + CRLF +
+            'Content-Disposition: form-data; name="file"; filename="' + fileMeta.filename + '"' + CRLF +
+            'Content-Type: ' + fileMeta.contentType + CRLF + CRLF
+        )
+    );
+    body.appendData(fileData);
+    body.appendData($data.fromUTF8(CRLF));
+
+    // closing boundary
+    body.appendData($data.fromUTF8('--' + boundary + '--' + CRLF));
+
+    return {
+        bodyData: body,
+        contentType: 'multipart/form-data; boundary=' + boundary,
+    };
+}
+
+function buildCloudModelsToTry(config) {
+    if (config.cloudModelPreset === 'auto') {
+        return CLOUD_ASYNC_MODEL_CANDIDATES.slice();
+    }
+
+    if (config.cloudModelPreset === 'custom') {
+        return [config.cloudCustomModelName];
+    }
+
+    return [config.cloudModelPreset];
+}
+
+function shouldRetryWithNextModel(config, error, modelsToTry, index) {
+    if (!config || config.cloudModelPreset !== 'auto') {
+        return false;
+    }
+
+    if (!isModelParameterError(error)) {
+        return false;
+    }
+
+    return index + 1 < modelsToTry.length;
+}
+
+function isModelParameterError(error) {
+    return !!(error && typeof error.message === 'string' && error.message.indexOf('模型传参错误') !== -1);
+}
+
+function buildAsyncOptionalPayload(config) {
+    return {
+        useDocOrientationClassify: !!config.useDocOrientationClassify,
+        useDocUnwarping: !!config.useDocUnwarping,
+        useChartRecognition: !!config.useChartRecognition,
+    };
+}
+
+function parseAsyncJobCreateResponse(resp, config) {
+    var serviceLabel = getServiceLabel(config);
+
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', serviceLabel + '网络层返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求' + serviceLabel + '失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    if (statusCode !== 200) {
+        var troubleshooting = asyncJobsTroubleshootingLink(statusCode, resp.data);
+        return {
+            ok: false,
+            error: makeServiceError(
+                statusCode === 401 || statusCode === 403 ? 'secretKey' : 'network',
+                serviceLabel + '返回异常状态码: ' + statusCode + appendUpstreamErrorSuffix(resp.data) + asyncJobsTroubleshootingSuffix(statusCode, resp.data),
+                {
+                    statusCode: statusCode,
+                    data: resp.data,
+                },
+                troubleshooting
+            ),
+        };
+    }
+
+    if (!isPlainObject(resp.data) || !isPlainObject(resp.data.data)) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '提交成功但返回结构不符合预期。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var jobId = stringOrDefault(resp.data.data.jobId, '');
+    if (!jobId) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '未返回 jobId。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        jobId: jobId,
+    };
+}
+
+function pollAsyncJob(jobId, config, startedAtMs, done) {
+    var elapsedSec = elapsedSeconds(startedAtMs);
+    if (elapsedSec >= config.requestTimeoutSec) {
+        done({
+            ok: false,
+            error: makeServiceError('network', '百度异步文档解析 jobs 轮询超时。', {
+                jobId: jobId,
+                timeoutSec: config.requestTimeoutSec,
+            }),
+        });
+        return;
+    }
+
+    $http.request({
+        method: 'GET',
+        url: config.serverUrl + '/' + encodeURIComponent(jobId),
+        header: buildRequestHeaders(config),
+        timeout: singleAsyncRequestTimeout(config, startedAtMs),
+        handler: function (resp) {
+            var polled = parseAsyncJobStatusResponse(resp, config);
+            if (!polled.ok) {
+                done(polled);
+                return;
+            }
+
+            if (polled.state === 'pending' || polled.state === 'running') {
+                scheduleAsyncPoll(jobId, config, startedAtMs, done);
+                return;
+            }
+
+            if (polled.state !== 'done') {
+                done({
+                    ok: false,
+                    error: makeServiceError('api', '百度异步文档解析 jobs 返回未知状态: ' + polled.state, {
+                        jobId: jobId,
+                        data: polled.data,
+                    }),
+                });
+                return;
+            }
+
+            downloadAsyncJsonResult(polled.jsonUrl, config, startedAtMs, function (downloaded) {
+                if (!downloaded.ok) {
+                    done(downloaded);
+                    return;
+                }
+
+                downloaded.jobId = jobId;
+                done(downloaded);
+            });
+        },
+    });
+}
+
+function scheduleAsyncPoll(jobId, config, startedAtMs, done) {
+    $timer.schedule({
+        interval: ASYNC_POLL_INTERVAL_SEC,
+        repeats: false,
+        handler: function () {
+            pollAsyncJob(jobId, config, startedAtMs, done);
+        },
+    });
+}
+
+function parseAsyncJobStatusResponse(resp, config) {
+    var serviceLabel = getServiceLabel(config);
+
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', serviceLabel + '轮询返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '轮询' + serviceLabel + '失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    if (statusCode !== 200) {
+        var troubleshooting = asyncJobsTroubleshootingLink(statusCode, resp.data);
+        return {
+            ok: false,
+            error: makeServiceError(
+                statusCode === 401 || statusCode === 403 ? 'secretKey' : 'network',
+                serviceLabel + '轮询返回异常状态码: ' + statusCode + appendUpstreamErrorSuffix(resp.data) + asyncJobsTroubleshootingSuffix(statusCode, resp.data),
+                {
+                    statusCode: statusCode,
+                    data: resp.data,
+                },
+                troubleshooting
+            ),
+        };
+    }
+
+    var payload = isPlainObject(resp.data) ? resp.data.data : null;
+    if (!isPlainObject(payload)) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '轮询结果结构不符合预期。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var state = stringOrDefault(payload.state, '');
+    if (!state) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '轮询结果缺少 state。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    if (state === 'failed') {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'api',
+                stringOrDefault(payload.errorMsg, '百度异步文档解析 jobs 失败。'),
+                {
+                    data: payload,
+                }
+            ),
+        };
+    }
+
+    if (state !== 'done') {
+        return {
+            ok: true,
+            state: state,
+            data: payload,
+        };
+    }
+
+    var jsonUrl = payload.resultUrl && stringOrDefault(payload.resultUrl.jsonUrl, '');
+    if (!jsonUrl) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '已完成但未返回 jsonUrl。', {
+                data: payload,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        state: state,
+        jsonUrl: jsonUrl,
+        data: payload,
+    };
+}
+
+function downloadAsyncJsonResult(jsonUrl, config, startedAtMs, done) {
+    var candidates = buildAsyncJsonDownloadCandidates(jsonUrl);
+    downloadAsyncJsonResultWithCandidates(
+        candidates,
+        0,
+        config,
+        startedAtMs,
+        function (downloaded) {
+            if (downloaded.ok || !shouldTryRelayDownload(downloaded.error, config)) {
+                done(downloaded);
+                return;
+            }
+
+            downloadAsyncJsonResultViaRelay(
+                candidates,
+                0,
+                config,
+                startedAtMs,
+                function (relayed) {
+                    if (!relayed.ok) {
+                        relayed = appendRelayFailureHint(relayed);
+                    }
+                    done(relayed);
+                }
+            );
+        }
+    );
+}
+
+function downloadAsyncJsonResultWithCandidates(candidates, index, config, startedAtMs, done) {
+    var requestUrl = candidates[index];
+    if (!requestUrl) {
+        done({
+            ok: false,
+            error: makeServiceError('network', '百度异步文档解析 jobs 结果下载地址为空。'),
+        });
+        return;
+    }
+
+    $http.request({
+        method: 'GET',
+        url: requestUrl,
+        timeout: singleAsyncRequestTimeout(config, startedAtMs),
+        handler: function (resp) {
+            var parsed = parseAsyncJsonResultResponse(resp, config, requestUrl);
+            if (
+                !parsed.ok &&
+                shouldRetryAsyncJsonDownload(resp, candidates, index)
+            ) {
+                downloadAsyncJsonResultWithCandidates(candidates, index + 1, config, startedAtMs, done);
+                return;
+            }
+
+            if (parsed.ok) {
+                parsed.jsonUrl = requestUrl;
+            }
+            done(parsed);
+        },
+    });
+}
+
+function downloadAsyncJsonResultViaRelay(candidates, index, config, startedAtMs, done) {
+    var targetUrl = candidates[index];
+    if (!targetUrl) {
+        done({
+            ok: false,
+            error: makeServiceError(
+                'network',
+                '本机 relay 下载失败：没有可用的 jsonUrl 候选地址。'
+            ),
+        });
+        return;
+    }
+
+    var relayRequestUrl = buildRelayFetchRequestUrl(config.asyncResultRelayUrl, targetUrl);
+    $http.request({
+        method: 'GET',
+        url: relayRequestUrl,
+        timeout: singleAsyncRequestTimeout(config, startedAtMs),
+        handler: function (resp) {
+            var parsed = parseRelayJsonResultResponse(resp, config, targetUrl);
+            if (!parsed.ok && index + 1 < candidates.length) {
+                downloadAsyncJsonResultViaRelay(candidates, index + 1, config, startedAtMs, done);
+                return;
+            }
+
+            if (parsed.ok) {
+                parsed.jsonUrl = targetUrl;
+                parsed.downloadVia = 'localRelay';
+            }
+            done(parsed);
+        },
+    });
+}
+
+function buildAsyncJsonDownloadCandidates(jsonUrl) {
+    var normalized = normalizeBceBosSignedUrl(jsonUrl);
+    if (!normalized || normalized === jsonUrl) {
+        return [jsonUrl];
+    }
+
+    return [jsonUrl, normalized];
+}
+
+function shouldRetryAsyncJsonDownload(resp, candidates, index) {
+    if (index + 1 >= candidates.length) {
+        return false;
+    }
+
+    if (!isPlainObject(resp)) {
+        return false;
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    return statusCode === 400 || statusCode === 403;
+}
+
+function shouldTryRelayDownload(error, config) {
+    if (!config || config.serviceMode !== 'cloudAsync') {
+        return false;
+    }
+    if (!config.asyncResultRelayUrl) {
+        return false;
+    }
+
+    var statusCode = getStatusCodeFromError(error);
+    if (statusCode === 403) {
+        return true;
+    }
+
+    var message = '';
+    if (error && typeof error.message === 'string') {
+        message = error.message.toLowerCase();
+    }
+
+    return message.indexOf('signature') !== -1 || message.indexOf('签名') !== -1;
+}
+
+function buildRelayFetchRequestUrl(relayBaseUrl, targetUrl) {
+    var separator = relayBaseUrl.indexOf('?') >= 0 ? '&' : '?';
+    return relayBaseUrl + separator + 'format=json&url=' + encodeURIComponent(targetUrl);
+}
+
+function parseRelayJsonResultResponse(resp, config, jsonUrl) {
+    var serviceLabel = getServiceLabel(config) + ' relay';
+
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', serviceLabel + '返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求本机 relay 失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    if (statusCode !== 200) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'network',
+                serviceLabel + '返回异常状态码: ' + statusCode + appendUpstreamErrorSuffix(resp.data),
+                {
+                    statusCode: statusCode,
+                    data: resp.data,
+                }
+            ),
+        };
+    }
+
+    var text = responseText(resp);
+    if (!text && isPlainObject(resp.data)) {
+        text = stringOrDefault(resp.data.text, '');
+        if (!text) {
+            text = stringOrDefault(resp.data.jsonl, '');
+        }
+    }
+
+    if (!text) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '下载成功，但未拿到 JSONL 文本。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var parsed = extractTextsFromAsyncJsonl(text);
+    if (!parsed.ok) {
+        return parsed;
+    }
+
+    if (parsed.texts.length === 0) {
+        return {
+            ok: false,
+            error: makeServiceError('notFound', '异步文档解析已完成，但 relay 未解析到可用文本。', {
+                lineCount: parsed.lineCount,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        texts: parsed.texts,
+        pageCount: parsed.pageCount,
+        jsonUrl: jsonUrl,
+    };
+}
+
+function appendRelayFailureHint(result) {
+    if (!result || !result.error || typeof result.error.message !== 'string') {
+        return result;
+    }
+    result.error.message +=
+        '。已尝试本机 relay 回退下载；请确认 relay 已启动（Async-JSONL-Relay-Start.command）后重试。';
+    return result;
+}
+
+function getStatusCodeFromError(error) {
+    if (!error || !isPlainObject(error.addition)) {
+        return 0;
+    }
+
+    var code = error.addition.statusCode;
+    if (typeof code === 'number' && isFinite(code)) {
+        return code;
+    }
+    if (typeof code === 'string' && /^[0-9]+$/.test(code)) {
+        return parseInt(code, 10);
+    }
+    return 0;
+}
+
+function normalizeBceBosSignedUrl(input) {
+    if (typeof input !== 'string') {
+        return input;
+    }
+
+    var questionMarkIndex = input.indexOf('?');
+    if (questionMarkIndex < 0 || input.indexOf('bcebos.com') < 0) {
+        return input;
+    }
+
+    var base = input.slice(0, questionMarkIndex);
+    var query = input.slice(questionMarkIndex + 1);
+    var parts = query.split('&');
+    var changed = false;
+    var i;
+
+    for (i = 0; i < parts.length; i += 1) {
+        var pair = parts[i];
+        var equalIndex = pair.indexOf('=');
+        if (equalIndex <= 0) {
+            continue;
+        }
+
+        var key = pair.slice(0, equalIndex);
+        var value = pair.slice(equalIndex + 1);
+        if (key !== 'authorization') {
+            continue;
+        }
+
+        var decoded = safeDecodeURIComponent(value);
+        if (!decoded || decoded === value || decoded.indexOf('bce-auth-v1/') !== 0) {
+            continue;
+        }
+
+        parts[i] = key + '=' + decoded;
+        changed = true;
+    }
+
+    if (!changed) {
+        return input;
+    }
+
+    return base + '?' + parts.join('&');
+}
+
+function safeDecodeURIComponent(input) {
+    if (typeof input !== 'string' || !input) {
+        return '';
+    }
+
+    try {
+        return decodeURIComponent(input);
+    } catch (error) {
+        $log.error('decodeURIComponent failed', error);
+        return '';
+    }
+}
+
+function parseAsyncJsonResultResponse(resp, config, jsonUrl) {
+    var serviceLabel = getServiceLabel(config);
+
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', serviceLabel + '结果下载返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '下载' + serviceLabel + '结果失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    if (statusCode !== 200) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'network',
+                serviceLabel + '结果下载返回异常状态码: ' + statusCode + appendUpstreamErrorSuffix(resp.data),
+                {
+                    statusCode: statusCode,
+                    data: resp.data,
+                }
+            ),
+        };
+    }
+
+    var text = responseText(resp);
+    if (!text) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '结果下载成功，但未拿到 JSONL 文本。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var parsed = extractTextsFromAsyncJsonl(text);
+    if (!parsed.ok) {
+        return parsed;
+    }
+
+    if (parsed.texts.length === 0) {
+        return {
+            ok: false,
+            error: makeServiceError('notFound', '异步文档解析已完成，但未识别到可用文本。', {
+                lineCount: parsed.lineCount,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        texts: parsed.texts,
+        pageCount: parsed.pageCount,
+        jsonUrl: jsonUrl,
+    };
+}
+
+function extractTextsFromAsyncJsonl(text) {
+    var lines = text.split(/\r?\n/);
+    var texts = [];
+    var lineCount = 0;
+    var pageCount = 0;
+    var i;
+
+    for (i = 0; i < lines.length; i += 1) {
+        var line = lines[i].trim();
+        if (!line) {
+            continue;
+        }
+
+        lineCount += 1;
+
+        var payload = null;
+        try {
+            payload = JSON.parse(line);
+        } catch (error) {
+            return {
+                ok: false,
+                error: makeServiceError('api', '异步文档解析返回的 JSONL 第 ' + lineCount + ' 行不是合法 JSON。', {
+                    line: line.slice(0, 200),
+                }),
+            };
+        }
+
+        var result = isPlainObject(payload) ? payload.result : null;
+        var lineTexts = extractTextsFromAsyncResult(result);
+        var j;
+        for (j = 0; j < lineTexts.length; j += 1) {
+            if (texts.length >= MAX_TEXT_ITEMS) {
+                return {
+                    ok: true,
+                    texts: texts,
+                    lineCount: lineCount,
+                    pageCount: pageCount,
+                };
+            }
+            texts.push({ text: lineTexts[j] });
+        }
+
+        pageCount += 1;
+    }
+
+    return {
+        ok: true,
+        texts: texts,
+        lineCount: lineCount,
+        pageCount: pageCount,
+    };
+}
+
+function extractTextsFromAsyncResult(result) {
+    var texts = [];
+    if (!isPlainObject(result)) {
+        return texts;
+    }
+
+    if (Array.isArray(result.layoutParsingResults)) {
+        var i;
+        for (i = 0; i < result.layoutParsingResults.length; i += 1) {
+            var item = result.layoutParsingResults[i];
+            if (!isPlainObject(item)) {
+                continue;
+            }
+
+            pushNormalizedText(texts, item.text);
+            pushNormalizedText(texts, item.markdown && item.markdown.text);
+            pushNormalizedText(texts, item.parsedText);
+            if (texts.length >= MAX_TEXT_ITEMS) {
+                return texts;
+            }
+        }
+    }
+
+    if (Array.isArray(result.ocrResults)) {
+        var ocrTexts = extractTexts(result.ocrResults);
+        var j;
+        for (j = 0; j < ocrTexts.length; j += 1) {
+            if (texts.length >= MAX_TEXT_ITEMS) {
+                return texts;
+            }
+            pushNormalizedText(texts, ocrTexts[j] && ocrTexts[j].text);
+        }
+    }
+
+    return texts;
+}
+
+function pushNormalizedText(texts, candidate) {
+    if (!Array.isArray(texts)) {
+        return;
+    }
+
+    var normalized = normalizeExtractedText(candidate);
+    if (!normalized) {
+        return;
+    }
+
+    texts.push(normalized);
+}
+
+function responseText(resp) {
+    if (isPlainObject(resp.data)) {
+        if (typeof resp.data.text === 'string' && resp.data.text) {
+            return resp.data.text;
+        }
+        if (typeof resp.data.jsonl === 'string' && resp.data.jsonl) {
+            return resp.data.jsonl;
+        }
+    }
+
+    if (typeof resp.data === 'string' && resp.data) {
+        return resp.data;
+    }
+
+    if ($data.isData(resp.data)) {
+        try {
+            return resp.data.toUTF8();
+        } catch (error) {
+            $log.error('toUTF8 failed', error);
+        }
+    }
+
+    return '';
+}
+
+function validationImageData() {
+    try {
+        return $data.fromBase64(VALIDATION_IMAGE_BASE64);
+    } catch (error) {
+        $log.error('fromBase64 failed', error);
+        return null;
+    }
+}
+
+function detectUploadFileMeta(data) {
+    if (!$data.isData(data) || data.length <= 0) {
+        return null;
+    }
+
+    var hex = '';
+    try {
+        hex = data.toHex();
+    } catch (error) {
+        $log.error('toHex failed', error);
+        return {
+            filename: 'bob-capture.png',
+            contentType: 'image/png',
+        };
+    }
+
+    if (typeof hex !== 'string' || hex.length < 8) {
+        return {
+            filename: 'bob-capture.png',
+            contentType: 'image/png',
+        };
+    }
+
+    if (hex.indexOf('89504e470d0a1a0a') === 0) {
+        return {
+            filename: 'bob-capture.png',
+            contentType: 'image/png',
+        };
+    }
+
+    if (hex.indexOf('ffd8ff') === 0) {
+        return {
+            filename: 'bob-capture.jpg',
+            contentType: 'image/jpeg',
+        };
+    }
+
+    if (hex.indexOf('25504446') === 0) {
+        return {
+            filename: 'bob-capture.pdf',
+            contentType: 'application/pdf',
+        };
+    }
+
+    return {
+        filename: 'bob-capture.png',
+        contentType: 'image/png',
+    };
+}
+
+function singleAsyncRequestTimeout(config, startedAtMs) {
+    var remaining = config.requestTimeoutSec - elapsedSeconds(startedAtMs);
+    return clamp(remaining, MIN_REQUEST_TIMEOUT_SEC, 15);
+}
+
+function elapsedSeconds(startedAtMs) {
+    return Math.floor((new Date().getTime() - startedAtMs) / 1000);
+}
+
+function appendUpstreamErrorSuffix(data) {
+    var message = extractUpstreamErrorMessage(data);
+    if (!message) {
+        return '';
+    }
+
+    return ' ' + message;
+}
+
+function asyncJobsTroubleshootingSuffix(statusCode, data) {
+    var message = extractUpstreamErrorMessage(data);
+
+    if (statusCode === 400 && message.indexOf('模型传参错误') !== -1) {
+        return '。请改用“自动检测（推荐）”，或手动选择实测可用值 PaddleOCR-VL-1.5 / PaddleOCR-VL；如果你选了“自定义模型 ID”，请确认填写的是官方真实模型名。';
+    }
+
+    if (statusCode !== 404) {
+        return '';
+    }
+
+    if (message.indexOf('仅支持 POST /ocr') === -1 && message.indexOf('接口不存在') === -1) {
+        return '';
+    }
+
+    return '。这说明你填的是部署版 /ocr 服务地址，不是官方 jobs 入口；请把 OCR 服务地址改为 https://paddleocr.aistudio-app.com/api/v2/ocr/jobs';
+}
+
+function asyncJobsTroubleshootingLink(statusCode, data) {
+    if (statusCode === 400) {
+        var message = extractUpstreamErrorMessage(data);
+        if (message.indexOf('模型传参错误') !== -1) {
+            return 'https://ai.baidu.com/ai-doc/PADDLEOCR/Rlnanrvvm';
+        }
+    }
+
+    if (statusCode === 401 || statusCode === 403) {
+        return 'https://ai.baidu.com/ai-doc/AISTUDIO/slmkadt9z';
+    }
+
+    var suffix = asyncJobsTroubleshootingSuffix(statusCode, data);
+    if (suffix) {
+        return 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs';
+    }
+
+    return undefined;
+}
+
+function parseServerResponse(resp, config) {
+    var serviceLabel = getServiceLabel(config);
+
+    if (!isPlainObject(resp)) {
+        return {
+            ok: false,
+            error: makeServiceError('network', serviceLabel + '服务网络层返回数据异常。', resp),
+        };
+    }
+
+    if (resp.error) {
+        return {
+            ok: false,
+            error: makeServiceError('network', '请求' + serviceLabel + '失败。', {
+                error: resp.error,
+                response: resp.response,
+            }),
+        };
+    }
+
+    var statusCode = resp.response && resp.response.statusCode;
+    if (statusCode !== 200) {
+        var upstreamMessage = extractUpstreamErrorMessage(resp.data);
+        var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'network';
+        var errorMessage = serviceLabel + '返回异常状态码: ' + statusCode;
+        if (upstreamMessage) {
+            errorMessage += ' ' + upstreamMessage;
+        }
+
+        return {
+            ok: false,
+            error: makeServiceError(
+                errorType,
+                errorMessage,
+                {
+                    statusCode: statusCode,
+                    data: resp.data,
+                },
+                statusCode === 401 || statusCode === 403 ? 'https://ai.baidu.com/ai-doc/AISTUDIO/slmkadt9z' : undefined
+            ),
+        };
+    }
+
+    if (!isPlainObject(resp.data)) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '响应不是合法 JSON 对象。', {
+                data: resp.data,
+            }),
+        };
+    }
+
+    var data = resp.data;
+    if (data.errorCode !== undefined && data.errorCode !== 0) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'api',
+                stringOrDefault(data.errorMsg, stringOrDefault(data.message, serviceLabel + '返回错误。')),
+                {
+                    errorCode: data.errorCode,
+                    logId: data.logId,
+                }
+            ),
+        };
+    }
+
+    if (data.code !== undefined && data.code !== 0) {
+        return {
+            ok: false,
+            error: makeServiceError(
+                'api',
+                stringOrDefault(data.msg, stringOrDefault(data.message, serviceLabel + '返回错误。')),
+                {
+                    errorCode: data.code,
+                    logId: data.logId,
+                }
+            ),
+        };
+    }
+
+    var normalizedPayload = normalizeServerPayload(data);
+    if (!normalizedPayload) {
+        return {
+            ok: false,
+            error: makeServiceError('api', serviceLabel + '结果结构不符合预期。', {
+                data: data,
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        payload: normalizedPayload,
+    };
+}
+
+function normalizeServerPayload(data) {
+    if (!isPlainObject(data)) {
+        return null;
+    }
+
+    if (isPlainObject(data.result) && Array.isArray(data.result.ocrResults)) {
+        return {
+            logId: data.logId,
+            result: data.result,
+        };
+    }
+
+    if (isPlainObject(data.result) && Array.isArray(data.result.ocr_results)) {
+        return {
+            logId: data.logId,
+            result: {
+                ocrResults: data.result.ocr_results,
+            },
+        };
+    }
+
+    if (Array.isArray(data.ocrResults)) {
+        return {
+            logId: data.logId,
+            result: {
+                ocrResults: data.ocrResults,
+            },
+        };
+    }
+
+    if (Array.isArray(data.ocr_results)) {
+        return {
+            logId: data.logId,
+            result: {
+                ocrResults: data.ocr_results,
+            },
+        };
+    }
+
+    if (isPlainObject(data.data)) {
+        return normalizeServerPayload(data.data);
+    }
+
+    return null;
+}
+
 function parseCloudValidationResponse(resp) {
     if (!isPlainObject(resp)) {
         return {
             ok: false,
-            error: makeServiceError('network', '云端健康检查返回数据异常。', resp),
+            error: makeServiceError('network', '云端服务商健康检查返回数据异常。', resp),
         };
     }
 
     if (resp.error) {
         return {
             ok: false,
-            error: makeServiceError('network', '请求云端 OCR 健康检查失败。', {
+            error: makeServiceError('network', '请求云端服务商健康检查失败。', {
                 error: resp.error,
                 response: resp.response,
             }),
@@ -655,56 +1744,9 @@ function parseCloudValidationResponse(resp) {
 
     var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
     var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
-    var message = '云端 OCR 健康检查状态码异常: ' + statusCode;
+    var message = '云端服务商健康检查状态码异常: ' + statusCode;
     if (statusCode === 404) {
-        message = '云端 OCR 健康检查失败（HTTP 404）。请确认 Base URL 是 OpenAI 兼容入口。';
-        errorType = 'notFound';
-    }
-    if (remoteErrorMessage) {
-        message += ' ' + remoteErrorMessage;
-    }
-
-    return {
-        ok: false,
-        error: makeServiceError(errorType, message, {
-            statusCode: statusCode,
-            data: resp.data,
-        }),
-    };
-}
-
-function parseGlmOcrValidationResponse(resp) {
-    if (!isPlainObject(resp)) {
-        return {
-            ok: false,
-            error: makeServiceError('network', 'GLM-OCR 健康检查返回数据异常。', resp),
-        };
-    }
-
-    if (resp.error) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '请求 GLM-OCR 健康检查失败。', {
-                error: resp.error,
-                response: resp.response,
-            }),
-        };
-    }
-
-    var statusCode = getResponseStatusCode(resp);
-    if (statusCode === 200) {
-        return { ok: true };
-    }
-
-    if (statusCode === 400 || statusCode === 422) {
-        return { ok: true };
-    }
-
-    var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
-    var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
-    var message = 'GLM-OCR 健康检查状态码异常: ' + statusCode;
-    if (statusCode === 404) {
-        message = 'GLM-OCR 健康检查失败（HTTP 404），请确认接口地址为 /layout_parsing。';
+        message = '云端服务商健康检查失败（HTTP 404）。请确认 Base URL 是 OpenAI 兼容入口。';
         errorType = 'notFound';
     }
     if (remoteErrorMessage) {
@@ -724,14 +1766,14 @@ function parseCloudOcrResponse(resp) {
     if (!isPlainObject(resp)) {
         return {
             ok: false,
-            error: makeServiceError('network', '云端 OCR 返回数据异常。', resp),
+            error: makeServiceError('network', '云端服务商 OCR 返回数据异常。', resp),
         };
     }
 
     if (resp.error) {
         var networkStatusCode = getResponseStatusCode(resp);
         var networkErrorText = normalizeAnyToText(resp.error);
-        var networkMessage = '请求云端 OCR 服务失败。';
+        var networkMessage = '请求云端服务商 OCR 失败。';
         if (networkStatusCode > 0) {
             networkMessage += ' 状态码: ' + networkStatusCode + '。';
         }
@@ -751,9 +1793,9 @@ function parseCloudOcrResponse(resp) {
     if (statusCode !== 200) {
         var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
         var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
-        var message = '云端 OCR 服务返回异常状态码: ' + statusCode;
+        var message = '云端服务商 OCR 返回异常状态码: ' + statusCode;
         if (statusCode === 404) {
-            message = '云端 OCR 请求返回 HTTP 404，请检查 Base URL / 接口路径配置。';
+            message = '云端服务商 OCR 请求返回 HTTP 404，请检查 Base URL / 接口路径配置。';
             errorType = 'notFound';
         }
         if (remoteErrorMessage) {
@@ -771,7 +1813,7 @@ function parseCloudOcrResponse(resp) {
     if (!isPlainObject(resp.data)) {
         return {
             ok: false,
-            error: makeServiceError('api', '云端 OCR 响应不是合法 JSON 对象。', {
+            error: makeServiceError('api', '云端服务商 OCR 响应不是合法 JSON 对象。', {
                 data: resp.data,
             }),
         };
@@ -781,7 +1823,7 @@ function parseCloudOcrResponse(resp) {
     if (!text) {
         return {
             ok: false,
-            error: makeServiceError('notFound', '云端模型没有返回可解析文本。', {
+            error: makeServiceError('notFound', '云端服务商模型没有返回可解析文本。', {
                 data: resp.data,
             }),
         };
@@ -794,271 +1836,6 @@ function parseCloudOcrResponse(resp) {
             data: resp.data,
         },
     };
-}
-
-function parseGlmOcrResponse(resp) {
-    if (!isPlainObject(resp)) {
-        return {
-            ok: false,
-            error: makeServiceError('network', 'GLM-OCR 返回数据异常。', resp),
-        };
-    }
-
-    if (resp.error) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '请求 GLM-OCR 服务失败。', {
-                error: resp.error,
-                response: resp.response,
-            }),
-        };
-    }
-
-    var statusCode = getResponseStatusCode(resp);
-    if (statusCode !== 200) {
-        var remoteErrorMessage = extractRemoteErrorMessage(resp.data);
-        var errorType = statusCode === 401 || statusCode === 403 ? 'secretKey' : 'api';
-        var message = 'GLM-OCR 服务返回异常状态码: ' + statusCode;
-        if (statusCode === 404) {
-            message = 'GLM-OCR 请求返回 HTTP 404，请检查接口地址是否为 /layout_parsing。';
-            errorType = 'notFound';
-        }
-        if (remoteErrorMessage) {
-            message += ' ' + remoteErrorMessage;
-        }
-        return {
-            ok: false,
-            error: makeServiceError(errorType, message, {
-                statusCode: statusCode,
-                data: resp.data,
-            }),
-        };
-    }
-
-    if (!isPlainObject(resp.data)) {
-        return {
-            ok: false,
-            error: makeServiceError('api', 'GLM-OCR 响应不是合法 JSON 对象。', {
-                data: resp.data,
-            }),
-        };
-    }
-
-    var text = extractGlmOcrText(resp.data);
-    if (!text) {
-        return {
-            ok: false,
-            error: makeServiceError('notFound', 'GLM-OCR 没有返回可解析文本。', {
-                data: resp.data,
-            }),
-        };
-    }
-
-    return {
-        ok: true,
-        payload: {
-            text: text,
-            data: resp.data,
-        },
-    };
-}
-
-function parseLocalServerResponse(resp) {
-    if (!isPlainObject(resp)) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '网络层返回数据异常。', resp),
-        };
-    }
-
-    if (resp.error) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '请求本地 OCR 服务失败。', {
-                error: resp.error,
-                response: resp.response,
-            }),
-        };
-    }
-
-    var statusCode = getResponseStatusCode(resp);
-    if (statusCode !== 200) {
-        return {
-            ok: false,
-            error: makeServiceError(
-                'network',
-                '本地 OCR 服务返回异常状态码: ' + statusCode,
-                {
-                    statusCode: statusCode,
-                    data: resp.data,
-                }
-            ),
-        };
-    }
-
-    if (!isPlainObject(resp.data)) {
-        return {
-            ok: false,
-            error: makeServiceError('api', 'OCR 服务响应不是合法 JSON 对象。', {
-                data: resp.data,
-            }),
-        };
-    }
-
-    var data = resp.data;
-    if (data.errorCode !== 0) {
-        return {
-            ok: false,
-            error: makeServiceError(
-                'api',
-                stringOrDefault(data.errorMsg, 'OCR 服务返回错误。'),
-                {
-                    errorCode: data.errorCode,
-                    logId: data.logId,
-                }
-            ),
-        };
-    }
-
-    if (!isPlainObject(data.result) || !Array.isArray(data.result.ocrResults)) {
-        return {
-            ok: false,
-            error: makeServiceError('api', 'OCR 服务结果结构不符合预期。', {
-                result: data.result,
-            }),
-        };
-    }
-
-    return {
-        ok: true,
-        payload: {
-            logId: data.logId,
-            result: data.result,
-        },
-    };
-}
-
-function parseLocalHealthResponse(resp) {
-    if (!isPlainObject(resp)) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '健康检查返回数据异常。', resp),
-        };
-    }
-
-    if (resp.error) {
-        return {
-            ok: false,
-            error: makeServiceError('network', '请求本地 OCR 健康检查失败。', {
-                error: resp.error,
-                response: resp.response,
-            }),
-        };
-    }
-
-    var statusCode = getResponseStatusCode(resp);
-    if (statusCode !== 200) {
-        return {
-            ok: false,
-            error: makeServiceError(
-                'network',
-                '本地 OCR 健康检查状态码异常: ' + statusCode,
-                {
-                    statusCode: statusCode,
-                    data: resp.data,
-                }
-            ),
-        };
-    }
-
-    if (!isPlainObject(resp.data) || resp.data.status !== 'ok') {
-        return {
-            ok: false,
-            error: makeServiceError('api', '本地 OCR 健康检查返回非预期内容。', {
-                data: resp.data,
-            }),
-        };
-    }
-
-    return { ok: true };
-}
-
-function extractTexts(ocrResults) {
-    var texts = [];
-    var i;
-    for (i = 0; i < ocrResults.length; i += 1) {
-        var page = ocrResults[i];
-        if (!isPlainObject(page)) {
-            continue;
-        }
-
-        var prunedResult = page.prunedResult;
-        if (!isPlainObject(prunedResult)) {
-            continue;
-        }
-
-        var recTexts = prunedResult.rec_texts;
-        if (!Array.isArray(recTexts)) {
-            continue;
-        }
-
-        var j;
-        for (j = 0; j < recTexts.length; j += 1) {
-            if (texts.length >= MAX_TEXT_ITEMS) {
-                return texts;
-            }
-
-            var normalized = normalizeExtractedText(recTexts[j]);
-            if (!normalized) {
-                continue;
-            }
-            texts.push({ text: normalized });
-        }
-    }
-
-    return texts;
-}
-
-function extractGlmOcrText(data) {
-    if (!isPlainObject(data)) {
-        return '';
-    }
-
-    if (typeof data.md_results === 'string') {
-        return cleanupCloudText(data.md_results);
-    }
-
-    if (Array.isArray(data.layout_details)) {
-        var parts = [];
-        var i;
-        for (i = 0; i < data.layout_details.length; i += 1) {
-            var item = data.layout_details[i];
-            if (!isPlainObject(item)) {
-                continue;
-            }
-
-            if (typeof item.content === 'string' && item.content.trim()) {
-                parts.push(item.content.trim());
-            }
-        }
-
-        if (parts.length > 0) {
-            return cleanupCloudText(parts.join('\n'));
-        }
-    }
-
-    if (Array.isArray(data.results)) {
-        var resultsText = extractTextFromMessageContent(data.results);
-        if (resultsText) {
-            return cleanupCloudText(resultsText);
-        }
-    }
-
-    if (typeof data.content === 'string') {
-        return cleanupCloudText(data.content);
-    }
-
-    return '';
 }
 
 function extractCloudOcrText(data) {
@@ -1231,87 +2008,6 @@ function cleanupCloudText(text) {
     return normalized;
 }
 
-function chooseResultLanguage(query) {
-    var from = normalizeLanguageCode(query.from);
-    if (from && from !== 'auto' && isSupportedLanguage(from)) {
-        return from;
-    }
-
-    var detectFrom = normalizeLanguageCode(query.detectFrom);
-    if (detectFrom && isSupportedLanguage(detectFrom)) {
-        return detectFrom;
-    }
-
-    return null;
-}
-
-function safeToBase64(data) {
-    try {
-        var base64 = data.toBase64();
-        if (typeof base64 !== 'string' || base64.length === 0) {
-            return null;
-        }
-        return base64;
-    } catch (error) {
-        $log.error('toBase64 failed', error);
-        return null;
-    }
-}
-
-function makeServiceError(type, message, addition, troubleshootingLink) {
-    var errorType = ERROR_TYPES[type] ? type : 'unknown';
-    var errorMessage = normalizeErrorMessage(message);
-
-    var error = {
-        type: errorType,
-        message: errorMessage,
-    };
-
-    if (addition !== undefined) {
-        error.addition = addition;
-    }
-
-    if (typeof troubleshootingLink === 'string' && troubleshootingLink.length > 0) {
-        error.troubleshootingLink = troubleshootingLink;
-    }
-
-    return error;
-}
-
-function normalizeErrorMessage(message) {
-    if (typeof message !== 'string') {
-        return '未知错误';
-    }
-
-    var trimmed = message.trim();
-    if (!trimmed) {
-        return '未知错误';
-    }
-
-    if (trimmed.length > 500) {
-        return trimmed.slice(0, 500);
-    }
-
-    return trimmed;
-}
-
-function normalizeExtractedText(text) {
-    if (typeof text !== 'string') {
-        return null;
-    }
-
-    var normalized = text.trim();
-    if (!normalized) {
-        return null;
-    }
-
-    if (normalized.length > MAX_TEXT_LENGTH) {
-        normalized = normalized.slice(0, MAX_TEXT_LENGTH);
-    }
-
-    return normalized;
-}
-
 function parseBackendMode(value) {
     if (typeof value !== 'string') {
         return DEFAULT_OCR_BACKEND_MODE;
@@ -1408,19 +2104,6 @@ function parseCloudImageDetail(identifier, fallback) {
         return value;
     }
     return fallback;
-}
-
-function parseCloudProvider(value) {
-    if (typeof value !== 'string') {
-        return DEFAULT_CLOUD_PROVIDER;
-    }
-
-    var normalized = value.trim().toLowerCase();
-    if (!CLOUD_PROVIDERS[normalized]) {
-        return DEFAULT_CLOUD_PROVIDER;
-    }
-
-    return normalized;
 }
 
 function buildLocalHealthUrl(serverUrl) {
@@ -1561,6 +2244,266 @@ function normalizeAnyToText(value) {
 
     return '';
 }
+function extractTexts(ocrResults) {
+    var texts = [];
+    var i;
+    for (i = 0; i < ocrResults.length; i += 1) {
+        var page = ocrResults[i];
+        if (!isPlainObject(page)) {
+            continue;
+        }
+
+        var recTexts = extractRecTexts(page);
+        if (!Array.isArray(recTexts)) {
+            continue;
+        }
+
+        var j;
+        for (j = 0; j < recTexts.length; j += 1) {
+            if (texts.length >= MAX_TEXT_ITEMS) {
+                return texts;
+            }
+
+            var normalized = normalizeExtractedText(recTexts[j]);
+            if (!normalized) {
+                continue;
+            }
+
+            texts.push({ text: normalized });
+        }
+    }
+
+    return texts;
+}
+
+function extractRecTexts(page) {
+    if (!isPlainObject(page)) {
+        return null;
+    }
+
+    if (Array.isArray(page.rec_texts)) {
+        return page.rec_texts;
+    }
+
+    if (isPlainObject(page.prunedResult) && Array.isArray(page.prunedResult.rec_texts)) {
+        return page.prunedResult.rec_texts;
+    }
+
+    if (isPlainObject(page.pruned_result) && Array.isArray(page.pruned_result.rec_texts)) {
+        return page.pruned_result.rec_texts;
+    }
+
+    return null;
+}
+
+function chooseResultLanguage(query) {
+    var from = normalizeLanguageCode(query.from);
+    if (from && from !== 'auto' && isSupportedLanguage(from)) {
+        return from;
+    }
+
+    var detectFrom = normalizeLanguageCode(query.detectFrom);
+    if (detectFrom && isSupportedLanguage(detectFrom)) {
+        return detectFrom;
+    }
+
+    return null;
+}
+
+function safeToBase64(data) {
+    try {
+        var base64 = data.toBase64();
+        if (typeof base64 !== 'string' || base64.length === 0) {
+            return null;
+        }
+        return base64;
+    } catch (error) {
+        $log.error('toBase64 failed', error);
+        return null;
+    }
+}
+
+function makeServiceError(type, message, addition, troubleshootingLink) {
+    var errorType = ERROR_TYPES[type] ? type : 'unknown';
+    var errorMessage = normalizeErrorMessage(message);
+
+    var error = {
+        type: errorType,
+        message: errorMessage,
+    };
+
+    if (addition !== undefined) {
+        error.addition = addition;
+    }
+
+    if (typeof troubleshootingLink === 'string' && troubleshootingLink.length > 0) {
+        error.troubleshootingLink = troubleshootingLink;
+    }
+
+    return error;
+}
+
+function normalizeErrorMessage(message) {
+    if (typeof message !== 'string') {
+        return '未知错误';
+    }
+
+    var trimmed = message.trim();
+    if (!trimmed) {
+        return '未知错误';
+    }
+
+    if (trimmed.length > 500) {
+        return trimmed.slice(0, 500);
+    }
+
+    return trimmed;
+}
+
+function normalizeExtractedText(text) {
+    if (typeof text !== 'string') {
+        return null;
+    }
+
+    var normalized = text.trim();
+    if (!normalized) {
+        return null;
+    }
+
+    if (normalized.length > MAX_TEXT_LENGTH) {
+        normalized = normalized.slice(0, MAX_TEXT_LENGTH);
+    }
+
+    return normalized;
+}
+
+function normalizeServerUrl(input, serviceMode) {
+    if (typeof input !== 'string') {
+        return null;
+    }
+
+    var value = input.trim();
+    if (value.length < 10 || value.length > 2048) {
+        return null;
+    }
+
+    if (!/^https?:\/\/[A-Za-z0-9._:-]+(\/.*)?$/.test(value)) {
+        return null;
+    }
+
+    value = value.replace(/\/+$/, '');
+
+    if (serviceMode === 'cloudAsync') {
+        if (/\/api\/v2\/ocr\/jobs$/i.test(value)) {
+            return value;
+        }
+
+        if (/\/api\/v2\/ocr$/i.test(value)) {
+            return value + '/jobs';
+        }
+
+        if (/\/api\/v2$/i.test(value)) {
+            return value + '/ocr/jobs';
+        }
+
+        if (/\/api$/i.test(value)) {
+            return value + '/v2/ocr/jobs';
+        }
+
+        return value + '/api/v2/ocr/jobs';
+    }
+
+    if (!/\/ocr$/i.test(value)) {
+        value += '/ocr';
+    }
+
+    return value;
+}
+
+function normalizeRelayUrl(input) {
+    if (typeof input !== 'string') {
+        return '';
+    }
+
+    var value = input.trim();
+    if (!value) {
+        return '';
+    }
+    if (value.length < 10 || value.length > 2048) {
+        return '';
+    }
+    if (!/^https?:\/\/[A-Za-z0-9._:-]+(\/.*)?$/.test(value)) {
+        return '';
+    }
+
+    value = value.replace(/\/+$/, '');
+    if (!/\/fetch-jsonl$/i.test(value)) {
+        value += '/fetch-jsonl';
+    }
+    return value;
+}
+
+function resolveServerUrlOption(serviceMode) {
+    if (serviceMode === 'local') {
+        return getOptionString('localServerUrl', getOptionString('serverUrl', DEFAULT_SERVER_URL));
+    }
+    if (serviceMode === 'cloudAsync') {
+        return getOptionString('baiduServerUrl', getOptionString('serverUrl', DEFAULT_BAIDU_SERVER_URL));
+    }
+    return getOptionString('serverUrl', DEFAULT_SERVER_URL);
+}
+
+function buildServerUrlErrorMessage(serviceMode) {
+    if (serviceMode === 'local') {
+        return '[本地] OCR 服务地址格式不正确，请填写 http:// 或 https:// 开头的 /ocr 地址。';
+    }
+    if (serviceMode === 'cloudAsync') {
+        return '[百度] 服务地址格式不正确，请填写 http:// 或 https:// 开头的 /jobs 地址，或官方根地址。';
+    }
+    return 'OCR 服务地址格式不正确，请填写 http:// 或 https:// 开头的地址。';
+}
+
+function getServiceLabel(config) {
+    if (config && config.serviceMode === 'cloudAsync') {
+        return '百度异步文档解析 jobs';
+    }
+    if (config && config.serviceMode === 'providerCloud') {
+        return '云端服务商 OCR';
+    }
+    return '本地 OCR 服务';
+}
+
+function extractUpstreamErrorMessage(data) {
+    if (typeof data === 'string') {
+        return data.trim();
+    }
+
+    if (!isPlainObject(data)) {
+        return '';
+    }
+
+    if (isPlainObject(data.error) && typeof data.error.message === 'string') {
+        return data.error.message.trim();
+    }
+
+    if (typeof data.error_msg === 'string' && data.error_msg.trim()) {
+        return data.error_msg.trim();
+    }
+
+    if (typeof data.errorMsg === 'string' && data.errorMsg.trim()) {
+        return data.errorMsg.trim();
+    }
+
+    if (typeof data.message === 'string' && data.message.trim()) {
+        return data.message.trim();
+    }
+
+    if (typeof data.msg === 'string' && data.msg.trim()) {
+        return data.msg.trim();
+    }
+
+    return '';
+}
 
 function parseIntegerInRange(input, fallback, min, max) {
     if (typeof input !== 'string' || !/^-?[0-9]+$/.test(input.trim())) {
@@ -1599,6 +2542,14 @@ function parseMenuBoolean(identifier, fallback) {
     return fallback;
 }
 
+function parseMenuChoice(identifier, fallback, allowedValues) {
+    var value = getOptionString(identifier, fallback);
+    if (allowedValues && allowedValues[value]) {
+        return value;
+    }
+    return fallback;
+}
+
 function getOptionString(identifier, fallback) {
     var value = $option[identifier];
     if (typeof value !== 'string') {
@@ -1611,6 +2562,14 @@ function getOptionString(identifier, fallback) {
     }
 
     return normalized;
+}
+
+function getOptionStringAllowEmpty(identifier, fallback) {
+    var value = $option[identifier];
+    if (typeof value !== 'string') {
+        return fallback;
+    }
+    return value.trim();
 }
 
 function normalizeLanguageCode(languageCode) {
