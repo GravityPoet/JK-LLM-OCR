@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.8",
+      "desc": "百度异步 jobs 新增显式结果下载策略；默认改为“只走 Relay”，避免在 Bob 运行时浪费时间尝试不稳定的 jsonUrl 直连。",
+      "sha256": "c3173c221f836f0ab2bc9aed4c39394d3fcb147148ec377cc4c6bdabf6770c9a",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.8/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1773192036366
+    },
+    {
       "version": "0.2.7",
       "desc": "品牌：插件安装显示名统一为 JK-LLM-OCR (Local + Cloud)，不再随模式切换改变名称。",
       "sha256": "c48c860d3b4626cc477da7fb903537629c4e22f7cb2795236141751263b39e49",
