@@ -2,7 +2,7 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "version": "0.2.6",
   "category": "ocr",
-  "name": "JK-LLM-OCR—GravityPoet开发",
+  "name": "JK-LLM-OCR (Local + Cloud)",
   "summary": "最强OCR插件（本地 + 云端服务商 + 百度 jobs）",
   "icon": "",
   "author": "JK-LLM-OCR Contributors",
@@ -20,17 +20,17 @@
         {
           "title": "本地服务",
           "value": "local",
-          "defaultPluginName": "JK-LLM-OCR 本地—GravityPoet开发"
+          "defaultPluginName": "JK-LLM-OCR (Local + Cloud)"
         },
         {
           "title": "云端服务商 OCR（OpenAI兼容）",
           "value": "providerCloud",
-          "defaultPluginName": "JK-LLM-OCR 云端—GravityPoet开发"
+          "defaultPluginName": "JK-LLM-OCR (Local + Cloud)"
         },
         {
           "title": "百度异步文档解析 jobs",
           "value": "cloudAsync",
-          "defaultPluginName": "JK-LLM-OCR 百度异步—GravityPoet开发"
+          "defaultPluginName": "JK-LLM-OCR (Local + Cloud)"
         }
       ],
       "desc": "已简化为 3 种模式：本地、本地外部服务商(OpenAI兼容)、百度异步 jobs。只填写当前模式对应的那一组字段。"
