@@ -29,6 +29,12 @@ var CLOUD_ASYNC_MODEL_SET = {
     custom: true,
 };
 
+var ASYNC_JSON_DOWNLOAD_STRATEGY_SET = {
+    directOnly: true,
+    directThenRelay: true,
+    relayOnly: true,
+};
+
 var CLOUD_ASYNC_MODEL_CANDIDATES = ['PaddleOCR-VL-1.5', 'PaddleOCR-VL'];
 
 var DEFAULT_SERVER_URL = 'http://127.0.0.1:50000/ocr';
@@ -45,6 +51,7 @@ var CLOUD_IMAGE_DETAILS = {
     low: true,
 };
 var DEFAULT_ASYNC_RESULT_RELAY_URL = 'http://127.0.0.1:50123/fetch-jsonl';
+var DEFAULT_ASYNC_JSON_DOWNLOAD_STRATEGY = 'relayOnly';
 var DEFAULT_REQUEST_TIMEOUT_SEC = 60;
 var MIN_REQUEST_TIMEOUT_SEC = 5;
 var MAX_REQUEST_TIMEOUT_SEC = 180;
@@ -405,6 +412,11 @@ function buildRuntimeConfig() {
     var useChartRecognition = parseMenuBoolean('useChartRecognition', false);
     var cloudModelPreset = parseMenuChoice('cloudModelPreset', DEFAULT_CLOUD_MODEL_NAME, CLOUD_ASYNC_MODEL_SET);
     var cloudCustomModelName = getOptionString('cloudCustomModelName', '');
+    var asyncJsonDownloadStrategy = parseMenuChoice(
+        'asyncJsonDownloadStrategy',
+        DEFAULT_ASYNC_JSON_DOWNLOAD_STRATEGY,
+        ASYNC_JSON_DOWNLOAD_STRATEGY_SET
+    );
     var asyncResultRelayUrlRaw = getOptionStringAllowEmpty(
         'asyncResultRelayUrl',
         DEFAULT_ASYNC_RESULT_RELAY_URL
@@ -421,7 +433,18 @@ function buildRuntimeConfig() {
         };
     }
 
-    if (serviceMode === 'cloudAsync' && asyncResultRelayUrlRaw) {
+    if (serviceMode === 'cloudAsync' && asyncJsonDownloadStrategy !== 'directOnly') {
+        if (!asyncResultRelayUrlRaw) {
+            return {
+                ok: false,
+                error: makeServiceError(
+                    'param',
+                    '[百度异步] 当前结果下载策略需要填写 Relay 地址。',
+                    { asyncJsonDownloadStrategy: asyncJsonDownloadStrategy }
+                ),
+            };
+        }
+
         asyncResultRelayUrl = normalizeRelayUrl(asyncResultRelayUrlRaw);
         if (!asyncResultRelayUrl) {
             return {
@@ -442,6 +465,7 @@ function buildRuntimeConfig() {
         accessToken: accessToken,
         cloudModelPreset: cloudModelPreset,
         cloudCustomModelName: cloudCustomModelName,
+        asyncJsonDownloadStrategy: asyncJsonDownloadStrategy,
         asyncResultRelayUrl: asyncResultRelayUrl,
         requestTimeoutSec: requestTimeoutSec,
         textRecScoreThresh: textRecScoreThresh,
@@ -969,13 +993,28 @@ function parseAsyncJobStatusResponse(resp, config) {
 
 function downloadAsyncJsonResult(jsonUrl, config, startedAtMs, done) {
     var candidates = buildAsyncJsonDownloadCandidates(jsonUrl);
+    var strategy = getAsyncJsonDownloadStrategy(config);
+
+    if (strategy === 'relayOnly') {
+        downloadAsyncJsonResultViaRelay(
+            candidates,
+            0,
+            config,
+            startedAtMs,
+            function (relayed) {
+                done(relayed);
+            }
+        );
+        return;
+    }
+
     downloadAsyncJsonResultWithCandidates(
         candidates,
         0,
         config,
         startedAtMs,
         function (downloaded) {
-            if (downloaded.ok || !shouldTryRelayDownload(downloaded.error, config)) {
+            if (downloaded.ok || strategy !== 'directThenRelay' || !shouldTryRelayDownload(downloaded.error, config)) {
                 done(downloaded);
                 return;
             }
@@ -1088,6 +1127,9 @@ function shouldTryRelayDownload(error, config) {
     if (!config || config.serviceMode !== 'cloudAsync') {
         return false;
     }
+    if (getAsyncJsonDownloadStrategy(config) !== 'directThenRelay') {
+        return false;
+    }
     if (!config.asyncResultRelayUrl) {
         return false;
     }
@@ -1103,6 +1145,19 @@ function shouldTryRelayDownload(error, config) {
     }
 
     return message.indexOf('signature') !== -1 || message.indexOf('签名') !== -1;
+}
+
+function getAsyncJsonDownloadStrategy(config) {
+    if (!config || config.serviceMode !== 'cloudAsync') {
+        return DEFAULT_ASYNC_JSON_DOWNLOAD_STRATEGY;
+    }
+
+    var strategy = config.asyncJsonDownloadStrategy;
+    if (typeof strategy === 'string' && ASYNC_JSON_DOWNLOAD_STRATEGY_SET[strategy]) {
+        return strategy;
+    }
+
+    return DEFAULT_ASYNC_JSON_DOWNLOAD_STRATEGY;
 }
 
 function buildRelayFetchRequestUrl(relayBaseUrl, targetUrl) {

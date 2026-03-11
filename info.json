@@ -1,6 +1,6 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "category": "ocr",
   "name": "JK-LLM-OCR (Local + Cloud)",
   "summary": "最强OCR插件（本地 + 云端服务商 + 百度 jobs）",
@@ -135,11 +135,32 @@
       }
     },
     {
+      "identifier": "asyncJsonDownloadStrategy",
+      "type": "menu",
+      "title": "[百度异步] 结果下载策略",
+      "defaultValue": "relayOnly",
+      "menuValues": [
+        {
+          "title": "只走直连",
+          "value": "directOnly"
+        },
+        {
+          "title": "直连失败回退 Relay",
+          "value": "directThenRelay"
+        },
+        {
+          "title": "只走 Relay",
+          "value": "relayOnly"
+        }
+      ],
+      "desc": "仅百度异步 jobs 模式使用。默认“只走 Relay”为当前最稳模式；若要排查 Bob 对签名 jsonUrl 的兼容问题，手动切到“只走直连”；若你还想保留一次直连机会，可切到“直连失败回退 Relay”。"
+    },
+    {
       "identifier": "asyncResultRelayUrl",
       "type": "text",
       "title": "[百度异步] Relay 地址(可选)",
       "defaultValue": "http://127.0.0.1:50123/fetch-jsonl",
-      "desc": "仅百度异步 jobs 模式使用。直连 jsonUrl 若报 403 / 签名异常，会自动回退到该地址；留空可禁用。"
+      "desc": "仅百度异步 jobs 模式使用。仅在“直连失败回退 Relay”或“只走 Relay”时会使用；若当前策略需要 relay，这里不能为空。"
     },
     {
       "identifier": "cloudModelPreset",
