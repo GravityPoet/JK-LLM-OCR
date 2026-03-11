@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.7",
+      "desc": "品牌：插件安装显示名统一为 JK-LLM-OCR (Local + Cloud)，不再随模式切换改变名称。",
+      "sha256": "c48c860d3b4626cc477da7fb903537629c4e22f7cb2795236141751263b39e49",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.7/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1773189583927
+    },
+    {
       "version": "0.2.6",
       "desc": "简化：移除百度同步 /ocr 与 GLM-OCR；界面收敛为本地/云端服务商/百度异步三模式；补充百度异步 relay 文档与脚本。",
       "sha256": "d69c8b71a58ee56dc6528beabf63c2d39bab416a714077481c2b6e51329d73b7",
