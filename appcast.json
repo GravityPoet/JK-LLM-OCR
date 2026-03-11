@@ -2,6 +2,14 @@
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
   "versions": [
     {
+      "version": "0.2.9",
+      "desc": "修正公开版默认值：百度异步 jobs 默认恢复为“直连失败回退 Relay”；保留显式下载策略菜单，本机已部署 relay 的用户仍可手动切到“只走 Relay”。",
+      "sha256": "32c198fcf28d6836c40a6306133565da0f47dda1e226627edc6d7dddfc3abd72",
+      "url": "https://github.com/GravityPoet/JK-LLM-OCR/releases/download/v0.2.9/JK-LLM-OCR.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1773192117076
+    },
+    {
       "version": "0.2.8",
       "desc": "百度异步 jobs 新增显式结果下载策略；默认改为“只走 Relay”，避免在 Bob 运行时浪费时间尝试不稳定的 jsonUrl 直连。",
       "sha256": "c3173c221f836f0ab2bc9aed4c39394d3fcb147148ec377cc4c6bdabf6770c9a",

@@ -1,6 +1,6 @@
 {
   "identifier": "io.github.gravitypoet.jk.llm.ocr",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "category": "ocr",
   "name": "JK-LLM-OCR (Local + Cloud)",
   "summary": "最强OCR插件（本地 + 云端服务商 + 百度 jobs）",
@@ -138,7 +138,7 @@
       "identifier": "asyncJsonDownloadStrategy",
       "type": "menu",
       "title": "[百度异步] 结果下载策略",
-      "defaultValue": "relayOnly",
+      "defaultValue": "directThenRelay",
       "menuValues": [
         {
           "title": "只走直连",
@@ -153,7 +153,7 @@
           "value": "relayOnly"
         }
       ],
-      "desc": "仅百度异步 jobs 模式使用。默认“只走 Relay”为当前最稳模式；若要排查 Bob 对签名 jsonUrl 的兼容问题，手动切到“只走直连”；若你还想保留一次直连机会，可切到“直连失败回退 Relay”。"
+      "desc": "仅百度异步 jobs 模式使用。公开版默认“直连失败回退 Relay”，兼顾可用性与无需本地 relay 的首次安装体验；若你要排查 Bob 对签名 jsonUrl 的兼容问题，手动切到“只走直连”；若你本机已部署 relay 且只追求稳定，可切到“只走 Relay”。"
     },
     {
       "identifier": "asyncResultRelayUrl",
